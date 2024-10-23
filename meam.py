@@ -4,10 +4,17 @@ from oauth2client.service_account import ServiceAccountCredentials
 import re
 import difflib
 import requests  # 썸네일 가져오기 위해 추가
+import os
+import json
 
 # 구글 스프레드시트 인증
 scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/drive']
-creds = ServiceAccountCredentials.from_json_keyfile_name('stellar-sunrise-439504-s3-40bbedb33c97.json', scope)
+
+# 환경 변수에서 JSON 문자열을 읽고 파싱
+creds_json = os.getenv('GOOGLE_SHEET_CREDENTIALS')
+creds_dict = json.loads(creds_json)
+
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 
 # 스프레드시트 열기
