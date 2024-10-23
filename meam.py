@@ -5,6 +5,7 @@ import re
 import difflib
 import json
 from datetime import datetime
+import os
 
 # 페이지 설정
 st.set_page_config(
@@ -14,67 +15,102 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS 스타일 추가
+# CSS 스타일 개선
 st.markdown("""
 <style>
     .main-title {
         text-align: center;
-        padding: 1rem;
-        background: linear-gradient(45deg, #FF6B6B, #4ECDC4);
+        padding: 1.5rem;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
-        border-radius: 10px;
+        border-radius: 15px;
         margin-bottom: 2rem;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     }
     .stButton>button {
         width: 100%;
-        background-color: #4ECDC4;
+        background: linear-gradient(to right, #4facfe 0%, #00f2fe 100%);
         color: white;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 10px;
+        font-weight: 600;
+        transition: transform 0.2s;
+    }
+    .stButton>button:hover {
+        transform: translateY(-2px);
     }
     .meme-card {
-        padding: 1rem;
-        background-color: #f8f9fa;
-        border-radius: 10px;
+        padding: 1.5rem;
+        background: white;
+        border-radius: 15px;
+        margin-bottom: 1.5rem;
+        border: 1px solid #e1e4e8;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        transition: transform 0.2s;
+    }
+    .meme-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+    .meme-card h3 {
+        color: #2d3748;
         margin-bottom: 1rem;
-        border: 1px solid #dee2e6;
+        font-size: 1.25rem;
+    }
+    .meme-card p {
+        color: #4a5568;
+        line-height: 1.6;
+        margin-bottom: 1rem;
+    }
+    .meme-card a {
+        color: #4facfe;
+        text-decoration: none;
+        font-weight: 500;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .meme-card a:hover {
+        text-decoration: underline;
     }
     .success-msg {
         padding: 1rem;
-        background-color: #d4edda;
-        color: #155724;
-        border-radius: 5px;
+        background-color: #c6f6d5;
+        color: #2f855a;
+        border-radius: 10px;
         margin-bottom: 1rem;
+        border: 1px solid #9ae6b4;
     }
     .error-msg {
         padding: 1rem;
-        background-color: #f8d7da;
-        color: #721c24;
-        border-radius: 5px;
+        background-color: #fed7d7;
+        color: #c53030;
+        border-radius: 10px;
         margin-bottom: 1rem;
+        border: 1px solid #feb2b2;
+    }
+    .stTextInput>div>div>input {
+        border-radius: 10px;
+    }
+    .stTextArea>div>div>textarea {
+        border-radius: 10px;
     }
 </style>
 """, unsafe_allow_html=True)
 
 def setup_google_auth():
     """Google Sheets API 인증 설정"""
-    credentials = {
-        "type": "service_account",
-        "project_id": st.secrets["gcp_service_account"]["project_id"],
-        "private_key_id": st.secrets["gcp_service_account"]["private_key_id"],
-        "private_key": st.secrets["gcp_service_account"]["private_key"],
-        "client_email": st.secrets["gcp_service_account"]["client_email"],
-        "client_id": st.secrets["gcp_service_account"]["client_id"],
-        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-        "token_uri": "https://oauth2.googleapis.com/token",
-        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-        "client_x509_cert_url": st.secrets["gcp_service_account"]["client_x509_cert_url"]
-    }
-    
-    SCOPES = [
-        'https://www.googleapis.com/auth/spreadsheets',
-        'https://www.googleapis.com/auth/drive'
-    ]
-    
     try:
+        # credentials.json 파일에서 인증 정보 읽기
+        with open('credentials.json', 'r') as f:
+            credentials = json.load(f)
+        
+        SCOPES = [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive'
+        ]
+        
         creds = service_account.Credentials.from_service_account_info(
             credentials, scopes=SCOPES)
         client = gspread.authorize(creds)
@@ -83,6 +119,7 @@ def setup_google_auth():
         st.error(f"인증 오류가 발생했습니다: {str(e)}")
         return None
 
+# [이전 코드의 나머지 함수들은 동일하게 유지]
 def get_youtube_thumbnail_url(url):
     """유튜브 URL에서 썸네일 URL 추출"""
     video_id_match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)
@@ -136,9 +173,9 @@ def display_meme_card(meme):
     with st.container():
         st.markdown(f"""
         <div class="meme-card">
-            <h3>{meme['meme']}</h3>
-            <p>{meme['output']}</p>
-            <a href="{meme['url']}" target="_blank">원본 보기 🔗</a>
+            <h3>💭 {meme['meme']}</h3>
+            <p>📝 {meme['output']}</p>
+            <a href="{meme['url']}" target="_blank">🔗 원본 보기</a>
         </div>
         """, unsafe_allow_html=True)
         
@@ -149,7 +186,7 @@ def main():
     # 헤더
     st.markdown('<h1 class="main-title">✨ 밈 판독기 ✨</h1>', unsafe_allow_html=True)
     st.markdown("""
-    > 밈을 모르는 당신을 위한 밈 해석기! 문장을 입력하면 관련된 밈을 찾아드립니다.
+    > 💡 밈을 모르는 당신을 위한 밈 해석기! 문장을 입력하면 관련된 밈을 찾아드립니다.
     """)
 
     # Google Sheets 클라이언트 설정
@@ -167,41 +204,63 @@ def main():
         return
 
     # 탭 생성
-    tab1, tab2 = st.tabs(["📝 밈 분석하기", "➕ 밈 등록하기"])
+    tab1, tab2 = st.tabs(["🔍 밈 분석하기", "✏️ 밈 등록하기"])
 
     with tab1:
         col1, col2 = st.columns([3, 1])
         with col1:
             input_text = st.text_area(
                 "분석할 문장을 입력하세요:",
-                placeholder="예: 어쩔티비",
+                placeholder="예: 어쩔티비, 뇌절, 갈비탕 500원...",
                 height=100
             )
         with col2:
             st.write("")
             st.write("")
-            if st.button("🔍 밈 분석", use_container_width=True):
+            analyze_button = st.button("🔍 밈 분석", use_container_width=True, key="analyze")
+            if analyze_button:
                 if input_text:
-                    with st.spinner('밈을 찾고 있습니다...'):
+                    with st.spinner('🔄 밈을 찾고 있습니다...'):
                         found_memes = find_matching_memes(input_text, data)
                         
                         if found_memes:
-                            st.success(f"총 {len(found_memes)}개의 밈을 찾았습니다!")
+                            st.success(f"🎉 총 {len(found_memes)}개의 밈을 찾았습니다!")
                             for meme in found_memes:
                                 display_meme_card(meme)
                         else:
                             st.warning("😅 관련된 밈을 찾지 못했습니다.")
                 else:
-                    st.warning("문장을 입력해주세요!")
+                    st.warning("✍️ 문장을 입력해주세요!")
 
     with tab2:
-        with st.form("meme_registration_form"):
-            st.subheader("새로운 밈 등록하기")
-            meme_text = st.text_input("밈 텍스트:", placeholder="예: 어쩔티비")
-            output_text = st.text_input("설명:", placeholder="어쩔티비의 의미와 사용법을 설명해주세요")
-            url = st.text_input("참고 URL:", placeholder="유튜브 영상이나 관련 웹페이지 URL")
+        st.markdown("""
+        <div style='background-color: #f8f9fa; padding: 1rem; border-radius: 10px; margin-bottom: 1rem;'>
+            <h4>🌟 새로운 밈 등록하기</h4>
+            <p style='color: #666;'>밈 데이터베이스를 함께 만들어가요! 새로운 밈을 등록해주세요.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        with st.form("meme_registration_form", clear_on_submit=True):
+            meme_text = st.text_input(
+                "🏷️ 밈 텍스트:", 
+                placeholder="예: 어쩔티비"
+            )
+            output_text = st.text_area(
+                "📝 설명:", 
+                placeholder="이 밈의 의미와 사용법을 설명해주세요",
+                height=100
+            )
+            url = st.text_input(
+                "🔗 참고 URL:", 
+                placeholder="유튜브 영상이나 관련 웹페이지 URL"
+            )
             
-            submit_button = st.form_submit_button("✨ 밈 등록하기")
+            col1, col2, col3 = st.columns([1,1,1])
+            with col2:
+                submit_button = st.form_submit_button(
+                    "✨ 밈 등록하기",
+                    use_container_width=True
+                )
             
             if submit_button:
                 if all([meme_text, output_text, url]):
@@ -215,9 +274,9 @@ def main():
                         st.success("✅ 밈이 성공적으로 등록되었습니다!")
                         st.balloons()
                     except Exception as e:
-                        st.error(f"밈 등록 중 오류가 발생했습니다: {str(e)}")
+                        st.error(f"😢 밈 등록 중 오류가 발생했습니다: {str(e)}")
                 else:
-                    st.warning("모든 필드를 입력해주세요!")
+                    st.warning("⚠️ 모든 필드를 입력해주세요!")
 
 if __name__ == "__main__":
     main()
