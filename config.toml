@@ -1,0 +1,19 @@
+mkdir -p .streamlit
+echo '[server]
+enableXsrfProtection = false
+
+[
+server
+]
+maxUploadSize = 1024  # MB 단위로 최대 업로드 크기 설정
+
+[
+browser
+]
+gatherUsageStats = false  # 선택사항: 사용 통계 수집 비활성화
+
+[theme]
+primaryColor = "#F63366"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F0F2F6"
+textColor = "#262730"
