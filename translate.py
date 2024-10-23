@@ -43,12 +43,26 @@ def init_session_state():
     """세션 상태 초기화"""
     if 'api_key' not in st.session_state:
         try:
-            st.session_state.api_key = st.secrets["OPENAI_API_KEY"]
-            if not st.session_state.api_key:
-                raise ValueError("API 키가 비어있습니다.")
+            # secrets.toml 파일에서 API 키 읽기 시도
+            st.session_state.api_key = st.secrets.get("OPENAI_API_KEY", "")
         except Exception as e:
-            st.error("⚠️ OpenAI API 키 설정이 필요합니다.")
-            st.info("💡 .streamlit/secrets.toml 파일에 API 키를 설정해주세요.")
+            # 환경 변수에서 API 키 읽기 시도
+            st.session_state.api_key = os.getenv("OPENAI_API_KEY", "")
+            
+        # API 키 검증
+        if not st.session_state.api_key:
+            st.error("⚠️ OpenAI API 키가 설정되지 않았습니다.")
+            st.info("""
+            💡 다음 두 가지 방법 중 하나로 API 키를 설정해주세요:
+            1. `.streamlit/secrets.toml` 파일에 추가:
+               ```toml
+               OPENAI_API_KEY = "your-api-key-here"
+               ```
+            2. 환경 변수로 설정:
+               ```bash
+               export OPENAI_API_KEY="your-api-key-here"
+               ```
+            """)
             st.stop()
 
 def handle_error(func):
