@@ -37,7 +37,10 @@ st.markdown("""
 
 # API 키 초기화
 if 'api_key' not in st.session_state:
-    st.session_state.api_key = ""  # 빈 문자열로 초기화
+    st.session_state.api_key = st.secrets["OPENAI_API_KEY"]
+
+# OpenAI 클라이언트 초기화 시 사용
+client = OpenAI(api_key=st.session_state.api_key)
 
 def translate_batch(texts, target_language, client):
     """배치 번역 함수"""
