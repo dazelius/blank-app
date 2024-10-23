@@ -7,7 +7,7 @@ import requests  # 썸네일 가져오기 위해 추가
 
 # 구글 스프레드시트 인증
 scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/drive']
-creds = ServiceAccountCredentials.from_json_keyfile_name('stellar-sunrise-439504-s3-40bbedb33c97.json', scope)
+creds = ServiceAccountCredentials.from_json_keyfile_name('/mount/src/blank-app/stellar-sunrise-439504-s3-40bbedb33c97.json', scope)
 client = gspread.authorize(creds)
 
 # 스프레드시트 열기
