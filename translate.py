@@ -4,6 +4,7 @@ import json
 import time
 from datetime import datetime
 import io
+import os
 import base64
 from openai import OpenAI
 import traceback
