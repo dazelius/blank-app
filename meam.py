@@ -191,24 +191,35 @@ def find_matching_memes(input_text, data, threshold=0.6):
         return []
         
     found_memes = []
-    input_words = input_text.lower().split()
+    # 입력 텍스트에서 특수문자 제거 및 소문자 변환
+    input_text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', input_text.lower())
+    input_words = input_text_cleaned.split()
     matched_memes = set()
     
-    meme_texts = [record['text'].lower() for record in data]
+    # 데이터 전처리
+    meme_texts_cleaned = [re.sub(r'[^가-힣a-zA-Z0-9\s]', '', record['text'].lower()) for record in data]
     
-    # 정확한 매칭 먼저 시도
-    for idx, meme_text in enumerate(meme_texts):
+    # 정확한 매칭과 부분 매칭 시도
+    for idx, meme_text in enumerate(meme_texts_cleaned):
+        # 전체 문장 매칭
         if any(word in meme_text for word in input_words):
             matched_memes.add(idx)
-    
-    # 유사도 기반 매칭
-    if not matched_memes:
-        for idx, meme_text in enumerate(meme_texts):
-            for word in input_words:
-                if len(word) > 1:  # 1글자 단어는 제외
-                    score = difflib.SequenceMatcher(None, word, meme_text).ratio()
+            continue
+            
+        # 개별 단어 매칭
+        meme_words = meme_text.split()
+        for input_word in input_words:
+            for meme_word in meme_words:
+                # 부분 문자열 매칭
+                if (input_word in meme_word or meme_word in input_word):
+                    matched_memes.add(idx)
+                    break
+                # 유사도 기반 매칭
+                if len(input_word) > 1:
+                    score = difflib.SequenceMatcher(None, input_word, meme_word).ratio()
                     if score >= threshold:
                         matched_memes.add(idx)
+                        break
     
     # 결과 수집
     for idx in matched_memes:
