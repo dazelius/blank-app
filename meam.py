@@ -102,9 +102,19 @@ st.markdown("""
 def setup_google_auth():
     """Google Sheets API 인증 설정"""
     try:
-        # credentials.json 파일에서 인증 정보 읽기
-        with open('credentials.json', 'r') as f:
-            credentials = json.load(f)
+        credentials = {
+            "type": "service_account",
+            "project_id": st.secrets["gcp_service_account"]["project_id"],
+            "private_key_id": st.secrets["gcp_service_account"]["private_key_id"],
+            "private_key": st.secrets["gcp_service_account"]["private_key"],
+            "client_email": st.secrets["gcp_service_account"]["client_email"],
+            "client_id": st.secrets["gcp_service_account"]["client_id"],
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_x509_cert_url": st.secrets["gcp_service_account"]["client_x509_cert_url"],
+            "universe_domain": "googleapis.com"
+        }
         
         SCOPES = [
             'https://www.googleapis.com/auth/spreadsheets',
