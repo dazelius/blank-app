@@ -1,4 +1,6 @@
 .streamlit/secrets.toml
+stellar-sunrise-439504-s3-40bbedb33c97.json
+
 __pycache__/
 *.pyc
 .env
