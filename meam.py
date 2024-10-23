@@ -144,6 +144,24 @@ st.markdown("""
     .stTextArea>div>div>textarea {
         border-radius: 10px;
     }
+    .recent-memes {
+        margin-bottom: 2rem;
+    }
+    .recent-memes-title {
+        background: linear-gradient(135deg, #FF6B6B 0%, #FFB88C 100%);
+        color: white;
+        padding: 1rem;
+        border-radius: 10px;
+        margin-bottom: 1rem;
+        font-weight: 600;
+        text-align: center;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    .timestamp {
+        font-size: 0.8rem;
+        color: #666;
+        margin-top: 5px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -289,6 +307,33 @@ def main():
     except Exception as e:
         st.error(f"스프레드시트 접근 오류: {str(e)}")
         return
+
+    # 최근 등록된 밈 표시
+    st.markdown("""
+    <div class="recent-memes">
+        <div class="recent-memes-title">
+            🔥 최신 등록 유행어 TOP 5
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 최근 데이터 5개 가져오기
+    recent_memes = sorted(data, key=lambda x: x.get('timestamp', ''), reverse=True)[:5]
+    
+    if recent_memes:
+        recent_memes_info = []
+        for meme in recent_memes:
+            meme_info = {
+                'meme': meme['text'],
+                'output': meme['output'],
+                'url': meme.get('url', ''),
+                'timestamp': meme.get('timestamp', '')
+            }
+            if meme_info['url'] and "youtube.com" in meme_info['url']:
+                meme_info['thumbnail'] = get_youtube_thumbnail_url(meme_info['url'])
+            recent_memes_info.append(meme_info)
+        
+        display_meme_cards(recent_memes_info)
 
     # 탭 생성
     tab1, tab2 = st.tabs(["🔍 밈 분석하기", "✏️ 밈 등록하기"])
