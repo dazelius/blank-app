@@ -352,7 +352,7 @@ def main():
             if all([meme_text, output_text]):  # URL은 선택적으로 변경
                 try:
                     # List 시트 가져오기
-                    list_worksheet = sheet.worksheet('List')
+                    list_worksheet = sheet.worksheet('DataBase') #나중에 List로 변경
                     
                     # 데이터 추가
                     list_worksheet.append_row([
