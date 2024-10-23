@@ -55,49 +55,34 @@ st.markdown("""
     .stButton>button:hover {
         transform: translateY(-2px);
     }
-    .horizontal-scroll {
+    .meme-container {
         display: flex;
         overflow-x: auto;
-        padding: 1rem 0;
-        gap: 1rem;
-        margin-bottom: 2rem;
-        white-space: nowrap;
+        padding: 20px 0;
+        gap: 20px;
+        -webkit-overflow-scrolling: touch;
     }
-
     .meme-card {
-        min-width: 300px;
-        max-width: 300px;
-        padding: 1.5rem;
+        flex: 0 0 auto;
+        width: 350px;
+        padding: 20px;
         background: white;
         border-radius: 15px;
         border: 1px solid #e1e4e8;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-        transition: transform 0.2s;
-        margin-right: 1rem;
-        flex: 0 0 auto;
-        display: inline-block;
-        vertical-align: top;
-    }
-
-    .meme-card img {
-        width: 100%;
-        height: auto;
-        object-fit: cover;
-        border-radius: 8px;
-    }
-    .meme-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        margin-right: 0;
     }
     .meme-card h3 {
         color: #2d3748;
-        margin-bottom: 1rem;
+        margin: 0 0 15px 0;
         font-size: 1.25rem;
+        font-weight: 600;
     }
     .meme-card p {
         color: #4a5568;
         line-height: 1.6;
-        margin-bottom: 1rem;
+        margin: 0 0 15px 0;
+        font-size: 1rem;
     }
     .meme-card a {
         color: #4facfe;
@@ -106,13 +91,20 @@ st.markdown("""
         display: inline-flex;
         align-items: center;
         gap: 0.5rem;
+        font-size: 0.95rem;
     }
     .meme-card a:hover {
         text-decoration: underline;
     }
+    .meme-card img {
+        width: 100%;
+        border-radius: 8px;
+        margin-top: 15px;
+    }
     .no-link {
         color: #666;
         font-style: italic;
+        font-size: 0.95rem;
     }
     .success-msg {
         padding: 1rem;
@@ -130,20 +122,22 @@ st.markdown("""
         margin-bottom: 1rem;
         border: 1px solid #feb2b2;
     }
-    .horizontal-scroll::-webkit-scrollbar {
+    /* 스크롤바 스타일링 */
+    .meme-container::-webkit-scrollbar {
         height: 8px;
     }
-    .horizontal-scroll::-webkit-scrollbar-track {
+    .meme-container::-webkit-scrollbar-track {
         background: #f1f1f1;
         border-radius: 4px;
     }
-    .horizontal-scroll::-webkit-scrollbar-thumb {
+    .meme-container::-webkit-scrollbar-thumb {
         background: #888;
         border-radius: 4px;
     }
-    .horizontal-scroll::-webkit-scrollbar-thumb:hover {
+    .meme-container::-webkit-scrollbar-thumb:hover {
         background: #555;
     }
+    /* 입력 필드 스타일링 */
     .stTextInput>div>div>input {
         border-radius: 10px;
     }
@@ -235,24 +229,34 @@ def display_meme_cards(memes):
     """밈 정보를 가로 스크롤 카드 형태로 표시"""
     if not memes:
         return
-    
-    # 가로 스크롤을 위한 컨테이너 시작
-    cards_html = '<div class="horizontal-scroll">'
+
+    # 컨테이너 시작
+    html_content = '<div class="meme-container">'
     
     for meme in memes:
+        # URL 처리
         url_html = f'<a href="{meme["url"]}" target="_blank">🔗 원본 보기</a>' if meme.get('url') and meme['url'].strip() else '<span class="no-link">🔗 관련 링크 없음</span>'
         
-        cards_html += f"""
-        <div class="meme-card">
-            <h3>💭 {meme['meme']}</h3>
-            <p>📝 {meme['output']}</p>
-            {url_html}
-            {f'<img src="{meme["thumbnail"]}" style="width:300px; margin-top:10px; border-radius:8px;">' if 'thumbnail' in meme and meme['thumbnail'] else ''}
-        </div>
+        # 카드 HTML 생성
+        card_html = f"""
+            <div class="meme-card">
+                <h3>💭 {meme['meme']}</h3>
+                <p>📝 {meme['output']}</p>
+                {url_html}
         """
+        
+        # 썸네일이 있는 경우 추가
+        if 'thumbnail' in meme and meme['thumbnail']:
+            card_html += f'<img src="{meme["thumbnail"]}" alt="썸네일">'
+        
+        card_html += '</div>'
+        html_content += card_html
     
-    cards_html += '</div>'
-    st.markdown(cards_html, unsafe_allow_html=True)
+    # 컨테이너 종료
+    html_content += '</div>'
+    
+    # HTML 렌더링
+    st.markdown(html_content, unsafe_allow_html=True)
 
 def main():
     # 헤더
