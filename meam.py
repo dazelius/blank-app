@@ -12,8 +12,23 @@ st.set_page_config(
     page_title="밈 판독기",
     page_icon="✨",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': None,
+        'Report a bug': None,
+        'About': "밈을 판독해 드립니다."
+    }
 )
+
+# Open Graph 메타 태그 추가
+st.markdown('''
+    <head>
+        <title>밈 판독기</title>
+        <meta property="og:title" content="밈 판독기"/>
+        <meta property="og:description" content="밈을 판독해 드립니다."/>
+        <meta property="og:image" content="밈 판독기"/>
+    </head>''', unsafe_allow_html=True)
+
 
 # CSS 스타일 개선
 st.markdown("""
