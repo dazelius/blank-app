@@ -1,122 +1,223 @@
 import streamlit as st
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2 import service_account
 import re
 import difflib
-import requests  # 썸네일 가져오기 위해 추가
-import os
 import json
+from datetime import datetime
 
-# 구글 스프레드시트 인증
-scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/drive']
+# 페이지 설정
+st.set_page_config(
+    page_title="밈 판독기",
+    page_icon="✨",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# 환경 변수에서 JSON 문자열을 읽고 파싱
-creds_json = os.getenv('GOOGLE_SHEET_CREDENTIALS')
-creds_dict = json.loads(creds_json)
+# CSS 스타일 추가
+st.markdown("""
+<style>
+    .main-title {
+        text-align: center;
+        padding: 1rem;
+        background: linear-gradient(45deg, #FF6B6B, #4ECDC4);
+        color: white;
+        border-radius: 10px;
+        margin-bottom: 2rem;
+    }
+    .stButton>button {
+        width: 100%;
+        background-color: #4ECDC4;
+        color: white;
+    }
+    .meme-card {
+        padding: 1rem;
+        background-color: #f8f9fa;
+        border-radius: 10px;
+        margin-bottom: 1rem;
+        border: 1px solid #dee2e6;
+    }
+    .success-msg {
+        padding: 1rem;
+        background-color: #d4edda;
+        color: #155724;
+        border-radius: 5px;
+        margin-bottom: 1rem;
+    }
+    .error-msg {
+        padding: 1rem;
+        background-color: #f8d7da;
+        color: #721c24;
+        border-radius: 5px;
+        margin-bottom: 1rem;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-client = gspread.authorize(creds)
+def setup_google_auth():
+    """Google Sheets API 인증 설정"""
+    credentials = {
+        "type": "service_account",
+        "project_id": st.secrets["gcp_service_account"]["project_id"],
+        "private_key_id": st.secrets["gcp_service_account"]["private_key_id"],
+        "private_key": st.secrets["gcp_service_account"]["private_key"],
+        "client_email": st.secrets["gcp_service_account"]["client_email"],
+        "client_id": st.secrets["gcp_service_account"]["client_id"],
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_x509_cert_url": st.secrets["gcp_service_account"]["client_x509_cert_url"]
+    }
+    
+    SCOPES = [
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive'
+    ]
+    
+    try:
+        creds = service_account.Credentials.from_service_account_info(
+            credentials, scopes=SCOPES)
+        client = gspread.authorize(creds)
+        return client
+    except Exception as e:
+        st.error(f"인증 오류가 발생했습니다: {str(e)}")
+        return None
 
-# 스프레드시트 열기
-sheet = client.open_by_url('https://docs.google.com/spreadsheets/d/1wPchxwAssBf706VuvxhGp4ESt3vj-N9RLcMaUF075ug/edit?gid=137455637#gid=137455637')
-worksheet = sheet.get_worksheet(0)
-
-# 스프레드시트에서 밈 데이터를 가져오기
-data = worksheet.get_all_records()
-
-# 유사도 측정 함수
-def find_best_matches(input_text, meme_texts, threshold=0.6):
-    matches = []
-    for meme_text in meme_texts:
-        score = difflib.SequenceMatcher(None, input_text, meme_text).ratio()
-        if score >= threshold:
-            matches.append((meme_text, score))
-    return matches
-
-# 유튜브 썸네일 URL 추출
 def get_youtube_thumbnail_url(url):
+    """유튜브 URL에서 썸네일 URL 추출"""
     video_id_match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)
     if video_id_match:
         video_id = video_id_match.group(1)
-        thumbnail_url = f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
-        return thumbnail_url
+        return f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
     return None
 
-# Streamlit 앱 인터페이스
-st.set_page_config(page_title="밈 판독기", layout="wide")  # 페이지 설정
-
-st.title("✨ 밈 판독기 ✨")
-st.write("밈을 모르는 아재를 위한 판독기입니다.")
-
-# 사이드바에 버튼 추가
-st.sidebar.header("기능")
-sidebar_option = st.sidebar.radio("선택하세요:", ["밈 분석하기", "밈 등록하기"])
-
-if sidebar_option == "밈 분석하기":
-    st.subheader("문장 분석하기")
-    input_text = st.text_area("문장을 입력하세요:", "")
+def find_matching_memes(input_text, data, threshold=0.6):
+    """입력 텍스트와 일치하는 밈 찾기"""
+    if not input_text.strip():
+        return []
+        
+    found_memes = []
+    input_words = input_text.lower().split()
+    matched_memes = set()
     
-    if st.button("밈 분석"):
-        if input_text:
-            found_memes = []
-            meme_texts = [record['text'] for record in data]
-            
-            # 입력된 문장을 단어 단위로 분리
-            input_words = input_text.split()
-            matched_memes = set()  # 중복된 밈을 방지하기 위해 집합 사용
-            
-            # 모든 밈 텍스트에 대해 확인
-            for meme_text in meme_texts:
-                for word in input_words:
+    meme_texts = [record['text'].lower() for record in data]
+    
+    # 정확한 매칭 먼저 시도
+    for idx, meme_text in enumerate(meme_texts):
+        if any(word in meme_text for word in input_words):
+            matched_memes.add(idx)
+    
+    # 유사도 기반 매칭
+    if not matched_memes:
+        for idx, meme_text in enumerate(meme_texts):
+            for word in input_words:
+                if len(word) > 1:  # 1글자 단어는 제외
                     score = difflib.SequenceMatcher(None, word, meme_text).ratio()
-                    if score >= 0.6:
-                        matched_memes.add(meme_text)  # 중복을 방지하기 위해 set에 추가
-            
-            # 일치하는 밈 정보 저장
-            for meme_text in matched_memes:
-                for record in data:
-                    if record['text'] == meme_text:
-                        meme_info = {
-                            'meme': record['text'],
-                            'output': record['output'],
-                            'url': record['url']
-                        }
-                        # 유튜브 링크라면 썸네일 URL 추가
-                        if "youtube.com" in record['url']:
-                            meme_info['thumbnail'] = get_youtube_thumbnail_url(record['url'])
-                        found_memes.append(meme_info)
-
-            if found_memes:
-                st.subheader("탐지된 밈:")
-                for meme in found_memes:
-                    # 밈 텍스트를 밑줄 긋고 볼드체로 표시, 클릭 시 URL로 연결
-                    meme_link = f"[**{meme['meme']}**]({meme['url']})"
-                    st.markdown(f"{meme_link} - {meme['output']}")
-                    
-                    # 썸네일 이미지 표시
-                    if 'thumbnail' in meme:
-                        st.image(meme['thumbnail'], width=300)
-            else:
-                st.write("밈을 찾지 못했습니다.")
-        else:
-            st.write("문장을 입력하세요.")
-
-elif sidebar_option == "밈 등록하기":
-    st.subheader("밈 등록하기")
-    meme_text = st.text_input("밈 텍스트 (text):")
-    output_text = st.text_input("출력 텍스트 (output):")
-    url = st.text_input("URL:")
+                    if score >= threshold:
+                        matched_memes.add(idx)
     
-    if st.button("등록"):
-        if meme_text and output_text and url:
-            # 새 밈 정보 추가
-            new_meme = {
-                'text': meme_text,
-                'output': output_text,
-                'url': url
-            }
-            # 스프레드시트에 새 밈 추가
-            worksheet.append_row([new_meme['text'], new_meme['output'], new_meme['url']])
-            st.success("밈이 성공적으로 등록되었습니다.")
-        else:
-            st.warning("모든 필드를 입력해야 합니다.")
+    # 결과 수집
+    for idx in matched_memes:
+        record = data[idx]
+        meme_info = {
+            'meme': record['text'],
+            'output': record['output'],
+            'url': record['url'],
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        if "youtube.com" in record['url']:
+            meme_info['thumbnail'] = get_youtube_thumbnail_url(record['url'])
+        found_memes.append(meme_info)
+    
+    return found_memes
+
+def display_meme_card(meme):
+    """밈 정보를 카드 형태로 표시"""
+    with st.container():
+        st.markdown(f"""
+        <div class="meme-card">
+            <h3>{meme['meme']}</h3>
+            <p>{meme['output']}</p>
+            <a href="{meme['url']}" target="_blank">원본 보기 🔗</a>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if 'thumbnail' in meme:
+            st.image(meme['thumbnail'], width=300, use_column_width=True)
+
+def main():
+    # 헤더
+    st.markdown('<h1 class="main-title">✨ 밈 판독기 ✨</h1>', unsafe_allow_html=True)
+    st.markdown("""
+    > 밈을 모르는 당신을 위한 밈 해석기! 문장을 입력하면 관련된 밈을 찾아드립니다.
+    """)
+
+    # Google Sheets 클라이언트 설정
+    client = setup_google_auth()
+    if not client:
+        st.error("Google Sheets 연결에 실패했습니다.")
+        return
+
+    try:
+        sheet = client.open_by_url('https://docs.google.com/spreadsheets/d/1wPchxwAssBf706VuvxhGp4ESt3vj-N9RLcMaUF075ug/edit?gid=137455637#gid=137455637')
+        worksheet = sheet.get_worksheet(0)
+        data = worksheet.get_all_records()
+    except Exception as e:
+        st.error(f"스프레드시트 접근 오류: {str(e)}")
+        return
+
+    # 탭 생성
+    tab1, tab2 = st.tabs(["📝 밈 분석하기", "➕ 밈 등록하기"])
+
+    with tab1:
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            input_text = st.text_area(
+                "분석할 문장을 입력하세요:",
+                placeholder="예: 어쩔티비",
+                height=100
+            )
+        with col2:
+            st.write("")
+            st.write("")
+            if st.button("🔍 밈 분석", use_container_width=True):
+                if input_text:
+                    with st.spinner('밈을 찾고 있습니다...'):
+                        found_memes = find_matching_memes(input_text, data)
+                        
+                        if found_memes:
+                            st.success(f"총 {len(found_memes)}개의 밈을 찾았습니다!")
+                            for meme in found_memes:
+                                display_meme_card(meme)
+                        else:
+                            st.warning("😅 관련된 밈을 찾지 못했습니다.")
+                else:
+                    st.warning("문장을 입력해주세요!")
+
+    with tab2:
+        with st.form("meme_registration_form"):
+            st.subheader("새로운 밈 등록하기")
+            meme_text = st.text_input("밈 텍스트:", placeholder="예: 어쩔티비")
+            output_text = st.text_input("설명:", placeholder="어쩔티비의 의미와 사용법을 설명해주세요")
+            url = st.text_input("참고 URL:", placeholder="유튜브 영상이나 관련 웹페이지 URL")
+            
+            submit_button = st.form_submit_button("✨ 밈 등록하기")
+            
+            if submit_button:
+                if all([meme_text, output_text, url]):
+                    try:
+                        worksheet.append_row([
+                            meme_text, 
+                            output_text, 
+                            url, 
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        ])
+                        st.success("✅ 밈이 성공적으로 등록되었습니다!")
+                        st.balloons()
+                    except Exception as e:
+                        st.error(f"밈 등록 중 오류가 발생했습니다: {str(e)}")
+                else:
+                    st.warning("모든 필드를 입력해주세요!")
+
+if __name__ == "__main__":
+    main()
