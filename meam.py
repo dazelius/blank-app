@@ -61,7 +61,9 @@ st.markdown("""
         padding: 1rem 0;
         gap: 1rem;
         margin-bottom: 2rem;
+        white-space: nowrap;
     }
+
     .meme-card {
         min-width: 300px;
         max-width: 300px;
@@ -73,6 +75,15 @@ st.markdown("""
         transition: transform 0.2s;
         margin-right: 1rem;
         flex: 0 0 auto;
+        display: inline-block;
+        vertical-align: top;
+    }
+
+    .meme-card img {
+        width: 100%;
+        height: auto;
+        object-fit: cover;
+        border-radius: 8px;
     }
     .meme-card:hover {
         transform: translateY(-2px);
@@ -225,22 +236,23 @@ def display_meme_cards(memes):
     if not memes:
         return
     
-    st.markdown('<div class="horizontal-scroll">', unsafe_allow_html=True)
+    # 가로 스크롤을 위한 컨테이너 시작
+    cards_html = '<div class="horizontal-scroll">'
+    
     for meme in memes:
         url_html = f'<a href="{meme["url"]}" target="_blank">🔗 원본 보기</a>' if meme.get('url') and meme['url'].strip() else '<span class="no-link">🔗 관련 링크 없음</span>'
         
-        st.markdown(f"""
+        cards_html += f"""
         <div class="meme-card">
             <h3>💭 {meme['meme']}</h3>
             <p>📝 {meme['output']}</p>
             {url_html}
+            {f'<img src="{meme["thumbnail"]}" style="width:300px; margin-top:10px; border-radius:8px;">' if 'thumbnail' in meme and meme['thumbnail'] else ''}
         </div>
-        """, unsafe_allow_html=True)
-        
-        if 'thumbnail' in meme and meme['thumbnail']:
-            st.image(meme['thumbnail'], width=200)
+        """
     
-    st.markdown('</div>', unsafe_allow_html=True)
+    cards_html += '</div>'
+    st.markdown(cards_html, unsafe_allow_html=True)
 
 def main():
     # 헤더
@@ -320,22 +332,26 @@ def main():
                     "✨ 밈 등록하기",
                     use_container_width=True
                 )
-            
-            if submit_button:
-                if all([meme_text, output_text]):  # URL은 선택적으로 변경
-                    try:
-                        worksheet.append_row([
-                            meme_text, 
-                            output_text, 
-                            url, 
-                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        ])
-                        st.success("✅ 밈이 성공적으로 등록되었습니다!")
-                        st.balloons()
-                    except Exception as e:
-                        st.error(f"😢 밈 등록 중 오류가 발생했습니다: {str(e)}")
-                else:
-                    st.warning("⚠️ 밈 텍스트와 설명은 필수입니다!")
+                    
+        if submit_button:
+            if all([meme_text, output_text]):  # URL은 선택적으로 변경
+                try:
+                    # List 시트 가져오기
+                    list_worksheet = sheet.worksheet('List')
+                    
+                    # 데이터 추가
+                    list_worksheet.append_row([
+                        meme_text, 
+                        output_text, 
+                        url, 
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    ])
+                    st.success("✅ 등록해주셔서 감사합니다. 검토 후에 추가됩니다!")
+                    st.balloons()
+                except Exception as e:
+                    st.error(f"😢 밈 등록 중 오류가 발생했습니다: {str(e)}")
+            else:
+                st.warning("⚠️ 밈 텍스트와 설명은 필수입니다!")
 
 if __name__ == "__main__":
     main()
