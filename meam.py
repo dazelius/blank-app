@@ -522,7 +522,7 @@ def analyze_file_contents(file_content, data):
 
 # display_file_analysis_results 함수 개선
 def display_file_analysis_results(analysis_results):
-    """파일 분석 결과 표시 - 위험도에 따른 색상 적용"""
+    """파일 분석 결과 표시 - 하이라이트 기능 추가"""
     if not analysis_results or not analysis_results['results']:
         return
     
@@ -545,6 +545,7 @@ def display_file_analysis_results(analysis_results):
         else:
             return "color: #00E676; font-weight: bold;"  # 초록색
     
+    # 통계 표시
     col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown(f"""
@@ -571,16 +572,47 @@ def display_file_analysis_results(analysis_results):
     # 결과를 위험도 순으로 정렬
     sorted_results = sorted(analysis_results['results'], key=lambda x: x['score'], reverse=True)
     
+    # 하이라이트 스타일 정의
+    highlight_style = """
+        background: linear-gradient(104deg, rgba(255, 178, 15, 0.1) 0.9%, rgba(255, 178, 15, 0.3) 2.4%, rgba(255, 178, 15, 0.2) 5.8%, rgba(255, 178, 15, 0.1) 93%, rgba(255, 178, 15, 0.1) 96%);
+        border-radius: 4px;
+        padding: 0.1em 0.2em;
+        box-decoration-break: clone;
+        -webkit-box-decoration-break: clone;
+        position: relative;
+        color: #FFB20F;
+        font-weight: 500;
+    """
+    
     # 상세 결과 표시
     for result in sorted_results:
+        # 원본 텍스트에 모든 패턴의 하이라이트 적용
+        highlighted_text = result['text']
+        for pattern in result['patterns']:
+            pattern_text = pattern['pattern']
+            pattern_words = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text.lower()).split()
+            
+            for word in pattern_words:
+                if len(word) >= 2:  # 2글자 이상의 단어만 처리
+                    pattern_regex = re.compile(f'({re.escape(word)})', re.IGNORECASE)
+                    highlighted_text = pattern_regex.sub(
+                        fr'<span style="{highlight_style}">\1</span>',
+                        highlighted_text
+                    )
+        
+        # 위험도에 따른 확장 여부 설정
+        is_high_risk = result['score'] >= 70
         with st.expander(
-            f"🔍 검출된 텍스트: {result['text'][:100]}... (위험도: {result['score']})", 
-            expanded=result['score'] >= 70  # 고위험 항목은 자동 확장
+            f"🔍 검출된 텍스트 (컬럼: {result['column']}, 위험도: {result['score']})",
+            expanded=is_high_risk
         ):
+            # 원본 텍스트와 하이라이트된 버전 표시
             st.markdown(f"""
                 <div style="padding: 15px; background-color: #2D2D2D; border-radius: 10px; margin-bottom: 10px;">
-                    <div style="font-weight: bold;">원본 텍스트:</div>
-                    <div style="padding: 10px; background-color: #3D3D3D; border-radius: 5px; margin-top: 5px;">{result['text']}</div>
+                    <div style="font-weight: bold;">원본 텍스트 (하이라이트 표시):</div>
+                    <div style="padding: 10px; background-color: #3D3D3D; border-radius: 5px; margin-top: 5px; line-height: 1.6;">
+                        {highlighted_text}
+                    </div>
                     <div style="margin-top: 10px;">
                         <span style="font-weight: bold;">검출된 컬럼:</span> {result['column']}
                     </div>
@@ -591,22 +623,57 @@ def display_file_analysis_results(analysis_results):
                 </div>
             """, unsafe_allow_html=True)
             
-            # 개별 패턴 표시
+            # 개별 패턴 분석 결과 표시
             for pattern in result['patterns']:
                 danger_style = get_color_style(pattern['danger_level'])
                 thumbnail_html = ""
                 if 'thumbnail' in pattern:
                     thumbnail_html = f'<img src="{pattern["thumbnail"]}" style="width:100%; max-width:480px; border-radius:10px; margin-top:10px;">'
                 
+                match_percentage = int(pattern.get('match_score', 0) * 100)
+                
                 st.markdown(f"""
-                    <div class="analysis-card" style="border-left: 4px solid {danger_style.split(';')[0].split(':')[1].strip()};">
+                    <div class="analysis-card" style="border-left: 4px solid {danger_style.split(':')[1].split(';')[0].strip()};">
                         <h3>🔍 발견된 패턴: {pattern['pattern']}</h3>
                         <p>📊 위험도: <span style="{danger_style}">{pattern['danger_level']}</span></p>
+                        <p>🎯 일치율: {match_percentage}%</p>
                         <p>📝 분석: {pattern['analysis']}</p>
                         {f'<p>🔗 <a href="{pattern["url"]}" target="_blank">참고 자료</a></p>' if pattern["url"] else ''}
                         {thumbnail_html}
                     </div>
                 """, unsafe_allow_html=True)
+
+# 추가 CSS 스타일
+st.markdown("""
+<style>
+    /* 하이라이트 컨테이너 스타일 */
+    .highlight-container {
+        background-color: #2D2D2D;
+        padding: 15px;
+        border-radius: 10px;
+        margin: 10px 0;
+    }
+    
+    /* 파일 분석 카드 스타일 */
+    .file-analysis-card {
+        background-color: #2D2D2D;
+        padding: 20px;
+        border-radius: 10px;
+        margin: 10px 0;
+        border-left: 4px solid transparent;
+    }
+    
+    /* 텍스트 컨테이너 스타일 */
+    .text-container {
+        background-color: #3D3D3D;
+        padding: 15px;
+        border-radius: 8px;
+        margin: 10px 0;
+        line-height: 1.6;
+        font-family: 'Noto Sans KR', sans-serif;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 
 
