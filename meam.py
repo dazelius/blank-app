@@ -330,6 +330,7 @@ def main():
                 else:
                     st.info("👀 특별한 위험 패턴이 발견되지 않았습니다.")
 
+    # with tab2 부분을 수정:
     with tab2:
         st.markdown("""
         <div style='background-color: #2D2D2D; padding: 1rem; border-radius: 10px; margin-bottom: 1rem;'>
