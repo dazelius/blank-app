@@ -9,292 +9,161 @@ import os
 
 # 페이지 설정
 st.set_page_config(
-    page_title="밈 판독기",
-    page_icon="✨",
+    page_title="문장 위험도 분석기",
+    page_icon="⚠️",
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
         'Get Help': None,
         'Report a bug': None,
-        'About': "밈을 판독해 드립니다."
+        'About': "문장의 위험도를 분석해드립니다."
     }
 )
 
-# Open Graph 메타 태그 추가
+# Open Graph 메타 태그 수정
 st.markdown('''
     <head>
-        <title>밈 판독기</title>
-        <meta property="og:title" content="밈 판독기"/>
-        <meta property="og:description" content="밈을 판독해 드립니다."/>
-        <meta property="og:image" content="밈 판독기"/>
+        <title>문장 위험도 분석기</title>
+        <meta property="og:title" content="문장 위험도 분석기"/>
+        <meta property="og:description" content="문장의 위험도를 분석해드립니다."/>
+        <meta property="og:image" content="문장 위험도 분석기"/>
     </head>''', unsafe_allow_html=True)
 
-
-# CSS 스타일 개선
+# CSS 스타일 업데이트
 st.markdown("""
 <style>
     .main-title {
         text-align: center;
         padding: 1.5rem;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #ff4e50 0%, #f9d423 100%);
         color: white;
         border-radius: 15px;
         margin-bottom: 2rem;
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     }
-    .stButton>button {
-        width: 100%;
-        background: linear-gradient(to right, #4facfe 0%, #00f2fe 100%);
-        color: white;
-        border: none;
-        padding: 0.5rem 1rem;
-        border-radius: 10px;
-        font-weight: 600;
-        transition: transform 0.2s;
-    }
-    .stButton>button:hover {
-        transform: translateY(-2px);
-    }
-    .meme-container {
-        display: flex;
-        overflow-x: auto;
-        padding: 20px 0;
-        gap: 20px;
-        -webkit-overflow-scrolling: touch;
-    }
-    .meme-card {
-        flex: 0 0 auto;
-        width: 350px;
-        padding: 20px;
-        background: white;
-        border-radius: 15px;
-        border: 1px solid #e1e4e8;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-        margin-right: 0;
-    }
-    .meme-card h3 {
-        color: #2d3748;
-        margin: 0 0 15px 0;
-        font-size: 1.25rem;
-        font-weight: 600;
-    }
-    .meme-card p {
-        color: #4a5568;
-        line-height: 1.6;
-        margin: 0 0 15px 0;
-        font-size: 1rem;
-    }
-    .meme-card a {
-        color: #4facfe;
-        text-decoration: none;
-        font-weight: 500;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        font-size: 0.95rem;
-    }
-    .meme-card a:hover {
-        text-decoration: underline;
-    }
-    .meme-card img {
-        width: 100%;
-        border-radius: 8px;
-        margin-top: 15px;
-    }
-    .no-link {
-        color: #666;
-        font-style: italic;
-        font-size: 0.95rem;
-    }
-    .success-msg {
-        padding: 1rem;
-        background-color: #c6f6d5;
-        color: #2f855a;
-        border-radius: 10px;
-        margin-bottom: 1rem;
-        border: 1px solid #9ae6b4;
-    }
-    .error-msg {
-        padding: 1rem;
-        background-color: #fed7d7;
-        color: #c53030;
-        border-radius: 10px;
-        margin-bottom: 1rem;
-        border: 1px solid #feb2b2;
-    }
-    /* 스크롤바 스타일링 */
-    .meme-container::-webkit-scrollbar {
-        height: 8px;
-    }
-    .meme-container::-webkit-scrollbar-track {
-        background: #f1f1f1;
-        border-radius: 4px;
-    }
-    .meme-container::-webkit-scrollbar-thumb {
-        background: #888;
-        border-radius: 4px;
-    }
-    .meme-container::-webkit-scrollbar-thumb:hover {
-        background: #555;
-    }
-    /* 입력 필드 스타일링 */
-    .stTextInput>div>div>input {
-        border-radius: 10px;
-    }
-    .stTextArea>div>div>textarea {
-        border-radius: 10px;
-    }
-    .recent-memes {
-        margin-bottom: 2rem;
-    }
-    .recent-memes-title {
-        background: linear-gradient(135deg, #FF6B6B 0%, #FFB88C 100%);
-        color: white;
-        padding: 1rem;
-        border-radius: 10px;
-        margin-bottom: 1rem;
-        font-weight: 600;
+    .danger-meter {
         text-align: center;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        padding: 2rem;
+        margin: 1rem 0;
+        border-radius: 15px;
+        background: #f8f9fa;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
     }
-    .timestamp {
-        font-size: 0.8rem;
-        color: #666;
-        margin-top: 5px;
+    .danger-score {
+        font-size: 3rem;
+        font-weight: bold;
+        margin: 1rem 0;
     }
+    .danger-level-low {
+        color: #2ecc71;
+    }
+    .danger-level-medium {
+        color: #f1c40f;
+    }
+    .danger-level-high {
+        color: #e74c3c;
+    }
+    .analysis-card {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 15px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        margin-bottom: 1rem;
+    }
+    /* 기존 스타일 유지 */
+    [이전 CSS 스타일들...]
 </style>
 """, unsafe_allow_html=True)
 
-def setup_google_auth():
-    """Google Sheets API 인증 설정"""
-    try:
-        credentials = {
-            "type": "service_account",
-            "project_id": st.secrets["gcp_service_account"]["project_id"],
-            "private_key_id": st.secrets["gcp_service_account"]["private_key_id"],
-            "private_key": st.secrets["gcp_service_account"]["private_key"],
-            "client_email": st.secrets["gcp_service_account"]["client_email"],
-            "client_id": st.secrets["gcp_service_account"]["client_id"],
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": st.secrets["gcp_service_account"]["client_x509_cert_url"],
-            "universe_domain": "googleapis.com"
-        }
-        
-        SCOPES = [
-            'https://www.googleapis.com/auth/spreadsheets',
-            'https://www.googleapis.com/auth/drive'
-        ]
-        
-        creds = service_account.Credentials.from_service_account_info(
-            credentials, scopes=SCOPES)
-        client = gspread.authorize(creds)
-        return client
-    except Exception as e:
-        st.error(f"인증 오류가 발생했습니다: {str(e)}")
-        return None
+def calculate_danger_score(matches):
+    """위험도 점수 계산"""
+    total_score = 0
+    for match in matches:
+        total_score += match.get('danger_level', 0)
+    return total_score
 
-def get_youtube_thumbnail_url(url):
-    """유튜브 URL에서 썸네일 URL 추출"""
-    video_id_match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)
-    if video_id_match:
-        video_id = video_id_match.group(1)
-        return f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
-    return None
+def get_danger_level_class(score):
+    """위험도 점수에 따른 CSS 클래스 반환"""
+    if score < 30:
+        return "danger-level-low"
+    elif score < 70:
+        return "danger-level-medium"
+    else:
+        return "danger-level-high"
 
-def find_matching_memes(input_text, data, threshold=0.6):
-    """입력 텍스트와 일치하는 밈 찾기"""
+def find_matching_patterns(input_text, data, threshold=0.6):
+    """입력 텍스트와 일치하는 패턴 찾기"""
     if not input_text.strip():
         return []
         
-    found_memes = []
-    # 입력 텍스트에서 특수문자 제거 및 소문자 변환
+    found_patterns = []
     input_text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', input_text.lower())
     input_words = input_text_cleaned.split()
-    matched_memes = set()
+    matched_patterns = set()
     
-    # 데이터 전처리
-    meme_texts_cleaned = [re.sub(r'[^가-힣a-zA-Z0-9\s]', '', record['text'].lower()) for record in data]
+    patterns_cleaned = [re.sub(r'[^가-힣a-zA-Z0-9\s]', '', record['text'].lower()) for record in data]
     
-    # 정확한 매칭과 부분 매칭 시도
-    for idx, meme_text in enumerate(meme_texts_cleaned):
-        # 전체 문장 매칭
-        if any(word in meme_text for word in input_words):
-            matched_memes.add(idx)
+    for idx, pattern_text in enumerate(patterns_cleaned):
+        if any(word in pattern_text for word in input_words):
+            matched_patterns.add(idx)
             continue
             
-        # 개별 단어 매칭
-        meme_words = meme_text.split()
+        pattern_words = pattern_text.split()
         for input_word in input_words:
-            for meme_word in meme_words:
-                # 부분 문자열 매칭
-                if (input_word in meme_word or meme_word in input_word):
-                    matched_memes.add(idx)
+            for pattern_word in pattern_words:
+                if (input_word in pattern_word or pattern_word in input_word):
+                    matched_patterns.add(idx)
                     break
-                # 유사도 기반 매칭
                 if len(input_word) > 1:
-                    score = difflib.SequenceMatcher(None, input_word, meme_word).ratio()
+                    score = difflib.SequenceMatcher(None, input_word, pattern_word).ratio()
                     if score >= threshold:
-                        matched_memes.add(idx)
+                        matched_patterns.add(idx)
                         break
     
-    # 결과 수집
-    for idx in matched_memes:
+    for idx in matched_patterns:
         record = data[idx]
-        meme_info = {
-            'meme': record['text'],
-            'output': record['output'],
-            'url': record['url'] if 'url' in record else '',
+        pattern_info = {
+            'pattern': record['text'],
+            'analysis': record['output'],
+            'danger_level': int(record.get('danger_level', 0)),
+            'url': record.get('url', ''),
             'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
-        if meme_info['url'] and "youtube.com" in meme_info['url']:
-            meme_info['thumbnail'] = get_youtube_thumbnail_url(meme_info['url'])
-        found_memes.append(meme_info)
+        found_patterns.append(pattern_info)
     
-    return found_memes
+    return found_patterns
 
-def display_meme_cards(memes):
-    """밈 정보를 가로 스크롤 카드 형태로 표시"""
-    if not memes:
-        return
-
-    # 컨테이너 시작
-    html_content = '<div class="meme-container">'
+def display_analysis_results(patterns, total_score):
+    """분석 결과 표시"""
+    # 전체 위험도 점수 표시
+    danger_level_class = get_danger_level_class(total_score)
+    st.markdown(f"""
+        <div class="danger-meter">
+            <h2>전체 위험도 점수</h2>
+            <div class="danger-score {danger_level_class}">{total_score}</div>
+        </div>
+    """, unsafe_allow_html=True)
     
-    for meme in memes:
-        # URL 처리
-        url_html = f'<a href="{meme["url"]}" target="_blank">🔗 원본 보기</a>' if meme.get('url') and meme['url'].strip() else '<span class="no-link">🔗 관련 링크 없음</span>'
-        
-        # 카드 HTML 생성
-        card_html = f"""
-            <div class="meme-card">
-                <h3>💭 {meme['meme']}</h3>
-                <p>📝 {meme['output']}</p>
-                {url_html}
-        """
-        
-        # 썸네일이 있는 경우 추가
-        if 'thumbnail' in meme and meme['thumbnail']:
-            card_html += f'<img src="{meme["thumbnail"]}" alt="썸네일">'
-        
-        card_html += '</div>'
-        html_content += card_html
-    
-    # 컨테이너 종료
-    html_content += '</div>'
-    
-    # HTML 렌더링
-    st.markdown(html_content, unsafe_allow_html=True)
+    # 개별 패턴 분석 결과 표시
+    for pattern in patterns:
+        danger_level_class = get_danger_level_class(pattern['danger_level'])
+        st.markdown(f"""
+            <div class="analysis-card">
+                <h3>🔍 발견된 패턴: {pattern['pattern']}</h3>
+                <p>📊 위험도: <span class="{danger_level_class}">{pattern['danger_level']}</span></p>
+                <p>📝 분석: {pattern['analysis']}</p>
+                {f'<p>🔗 <a href="{pattern["url"]}" target="_blank">참고 자료</a></p>' if pattern['url'] else ''}
+            </div>
+        """, unsafe_allow_html=True)
 
 def main():
     # 헤더
-    st.markdown('<h1 class="main-title">✨ 밈 판독기 ✨</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-title">⚠️ 문장 위험도 분석기 ⚠️</h1>', unsafe_allow_html=True)
     st.markdown("""
-    > 💡 밈을 모르는 당신을 위한 밈 해석기! 문장을 입력하면 관련된 밈을 찾아드립니다.
+    > 💡 입력된 문장의 위험도를 분석하고 점수화하여 보여드립니다.
     """)
 
-    # Google Sheets 클라이언트 설정
+    # Google Sheets 연결 설정
     client = setup_google_auth()
     if not client:
         st.error("Google Sheets 연결에 실패했습니다.")
@@ -308,110 +177,67 @@ def main():
         st.error(f"스프레드시트 접근 오류: {str(e)}")
         return
 
-    # 최근 등록된 밈 표시
-    st.markdown("""
-    <div class="recent-memes">
-        <div class="recent-memes-title">
-            🔥 최신 등록 유행어 TOP 5
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # 최근 데이터 5개 가져오기
-    recent_memes = sorted(data, key=lambda x: x.get('timestamp', ''), reverse=True)[:5]
-    
-    if recent_memes:
-        recent_memes_info = []
-        for meme in recent_memes:
-            meme_info = {
-                'meme': meme['text'],
-                'output': meme['output'],
-                'url': meme.get('url', ''),
-                'timestamp': meme.get('timestamp', '')
-            }
-            if meme_info['url'] and "youtube.com" in meme_info['url']:
-                meme_info['thumbnail'] = get_youtube_thumbnail_url(meme_info['url'])
-            recent_memes_info.append(meme_info)
-        
-        display_meme_cards(recent_memes_info)
-
     # 탭 생성
-    tab1, tab2 = st.tabs(["🔍 밈 분석하기", "✏️ 밈 등록하기"])
+    tab1, tab2 = st.tabs(["🔍 문장 분석", "✏️ 패턴 등록"])
 
     with tab1:
         col1, col2 = st.columns([3, 1])
         with col1:
             input_text = st.text_area(
                 "분석할 문장을 입력하세요:",
-                placeholder="예: 어쩔티비, 뇌절, 갈비탕 500원...",
+                placeholder="분석하고 싶은 문장을 입력해주세요...",
                 height=100
             )
         with col2:
             st.write("")
             st.write("")
-            analyze_button = st.button("🔍 밈 분석", use_container_width=True, key="analyze")
+            analyze_button = st.button("🔍 위험도 분석", use_container_width=True, key="analyze")
         
-        if analyze_button:
-            if input_text:
-                with st.spinner('🔄 밈을 찾고 있습니다...'):
-                    found_memes = find_matching_memes(input_text, data)
-                    if found_memes:
-                        st.success(f"🎉 총 {len(found_memes)}개의 밈을 찾았습니다!")
-                        display_meme_cards(found_memes)
-                    else:
-                        st.warning("😅 관련된 밈을 찾지 못했습니다.")
-            else:
-                st.warning("✍️ 문장을 입력해주세요!")
+        if analyze_button and input_text:
+            with st.spinner('🔄 문장을 분석하고 있습니다...'):
+                found_patterns = find_matching_patterns(input_text, data)
+                if found_patterns:
+                    total_score = calculate_danger_score(found_patterns)
+                    st.success(f"🎯 분석이 완료되었습니다! {len(found_patterns)}개의 패턴이 발견되었습니다.")
+                    display_analysis_results(found_patterns, total_score)
+                else:
+                    st.info("👀 특별한 위험 패턴이 발견되지 않았습니다.")
 
     with tab2:
         st.markdown("""
         <div style='background-color: #f8f9fa; padding: 1rem; border-radius: 10px; margin-bottom: 1rem;'>
-            <h4>🌟 새로운 밈 등록하기</h4>
-            <p style='color: #666;'>밈 데이터베이스를 함께 만들어가요! 새로운 밈을 등록해주세요.</p>
+            <h4>🌟 새로운 패턴 등록</h4>
+            <p style='color: #666;'>새로운 위험 패턴을 등록해주세요.</p>
         </div>
         """, unsafe_allow_html=True)
         
-        with st.form("meme_registration_form", clear_on_submit=True):
-            meme_text = st.text_input(
-                "🏷️ 밈 텍스트:", 
-                placeholder="예: 어쩔티비"
-            )
-            output_text = st.text_area(
-                "📝 설명:", 
-                placeholder="이 밈의 의미와 사용법을 설명해주세요",
-                height=100
-            )
-            url = st.text_input(
-                "🔗 참고 URL:", 
-                placeholder="유튜브 영상이나 관련 웹페이지 URL"
-            )
+        with st.form("pattern_registration_form", clear_on_submit=True):
+            pattern_text = st.text_input("🏷️ 패턴:", placeholder="위험 패턴을 입력하세요")
+            analysis_text = st.text_area("📝 분석:", placeholder="이 패턴의 위험성을 설명해주세요", height=100)
+            danger_level = st.slider("⚠️ 위험도:", 0, 100, 50)
+            url = st.text_input("🔗 참고 URL:", placeholder="관련 참고 자료 URL")
             
             col1, col2, col3 = st.columns([1,1,1])
             with col2:
-                submit_button = st.form_submit_button(
-                    "✨ 밈 등록하기",
-                    use_container_width=True
-                )
+                submit_button = st.form_submit_button("✨ 패턴 등록", use_container_width=True)
                     
         if submit_button:
-            if all([meme_text, output_text]):  # URL은 선택적으로 변경
+            if all([pattern_text, analysis_text]):
                 try:
-                    # List 시트 가져오기
-                    list_worksheet = sheet.worksheet('DataBase') #나중에 List로 변경
-                    
-                    # 데이터 추가
+                    list_worksheet = sheet.worksheet('DataBase')
                     list_worksheet.append_row([
-                        meme_text, 
-                        output_text, 
-                        url, 
+                        pattern_text,
+                        analysis_text,
+                        url,
+                        danger_level,
                         datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     ])
-                    st.success("✅ 등록해주셔서 감사합니다. 검토 후에 추가됩니다!")
+                    st.success("✅ 패턴이 등록되었습니다!")
                     st.balloons()
                 except Exception as e:
-                    st.error(f"😢 밈 등록 중 오류가 발생했습니다: {str(e)}")
+                    st.error(f"😢 패턴 등록 중 오류가 발생했습니다: {str(e)}")
             else:
-                st.warning("⚠️ 밈 텍스트와 설명은 필수입니다!")
+                st.warning("⚠️ 패턴과 분석 내용은 필수입니다!")
 
 if __name__ == "__main__":
     main()
