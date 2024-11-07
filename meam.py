@@ -32,46 +32,112 @@ st.markdown('''
 # CSS 스타일 업데이트
 st.markdown("""
 <style>
+    /* 다크모드 기본 배경 및 텍스트 색상 */
+    .stApp {
+        background-color: #1E1E1E;
+        color: #E0E0E0;
+    }
+    
+    /* 메인 타이틀 스타일 */
     .main-title {
         text-align: center;
         padding: 1.5rem;
-        background: linear-gradient(135deg, #ff4e50 0%, #f9d423 100%);
-        color: white;
+        background: linear-gradient(135deg, #434343 0%, #000000 100%);
+        color: #E0E0E0;
         border-radius: 15px;
         margin-bottom: 2rem;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
     }
+    
+    /* 카드 스타일 */
+    .analysis-card {
+        background: #2D2D2D;
+        padding: 1.5rem;
+        border-radius: 15px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        margin-bottom: 1rem;
+        color: #E0E0E0;
+    }
+    
+    /* 위험도 미터 스타일 */
     .danger-meter {
         text-align: center;
         padding: 2rem;
         margin: 1rem 0;
         border-radius: 15px;
-        background: #f8f9fa;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        background: #2D2D2D;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
     }
-    .danger-score {
-        font-size: 3rem;
-        font-weight: bold;
-        margin: 1rem 0;
+    
+    /* 입력 필드 스타일 */
+    .stTextInput>div>div>input {
+        background-color: #3D3D3D;
+        color: #E0E0E0;
+        border-color: #4D4D4D;
     }
-    .danger-level-low {
-        color: #2ecc71;
+    
+    .stTextArea>div>div>textarea {
+        background-color: #3D3D3D;
+        color: #E0E0E0;
+        border-color: #4D4D4D;
     }
-    .danger-level-medium {
-        color: #f1c40f;
+    
+    /* 버튼 스타일 */
+    .stButton>button {
+        background: linear-gradient(to right, #434343 0%, #000000 100%);
+        color: #E0E0E0;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 10px;
+        font-weight: 600;
+        transition: transform 0.2s;
     }
-    .danger-level-high {
-        color: #e74c3c;
+    
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        background: linear-gradient(to right, #4a4a4a 0%, #1a1a1a 100%);
     }
-    .analysis-card {
-        background: white;
-        padding: 1.5rem;
+    
+    /* 탭 스타일 */
+    .stTabs [data-baseweb="tab-list"] {
+        background-color: #2D2D2D;
         border-radius: 15px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-        margin-bottom: 1rem;
     }
-    /* 기존 스타일 유지 */
-    [이전 CSS 스타일들...]
+    
+    .stTabs [data-baseweb="tab"] {
+        color: #E0E0E0;
+    }
+    
+    /* 링크 스타일 */
+    a {
+        color: #00B4DB;
+        text-decoration: none;
+    }
+    
+    a:hover {
+        text-decoration: underline;
+        color: #00D4FF;
+    }
+    
+    /* 위험도 레벨 색상 */
+    .danger-level-low {
+        color: #00E676;
+    }
+    
+    .danger-level-medium {
+        color: #FFD700;
+    }
+    
+    .danger-level-high {
+        color: #FF5252;
+    }
+    
+    /* 알림 메시지 스타일 */
+    .stAlert {
+        background-color: #2D2D2D;
+        color: #E0E0E0;
+        border-radius: 10px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
