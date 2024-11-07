@@ -9,7 +9,7 @@ import os
 
 # 페이지 설정
 st.set_page_config(
-    page_title="문장 위험도 분석기",
+    page_title="텍스트 필터",
     page_icon="⚠️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -23,10 +23,10 @@ st.set_page_config(
 # Open Graph 메타 태그 수정
 st.markdown('''
     <head>
-        <title>문장 위험도 분석기</title>
-        <meta property="og:title" content="문장 위험도 분석기"/>
-        <meta property="og:description" content="문장의 위험도를 분석해드립니다."/>
-        <meta property="og:image" content="문장 위험도 분석기"/>
+        <title>텍스트 필터</title>
+        <meta property="og:title" content="텍스트 필터"/>
+        <meta property="og:description" content="텍스트 필터"/>
+        <meta property="og:image" content="텍스트 필터"/>
     </head>''', unsafe_allow_html=True)
 
 # CSS 스타일 업데이트
