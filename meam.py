@@ -201,10 +201,44 @@ def load_sheet_data():
         
         sheet = client.open_by_url('https://docs.google.com/spreadsheets/d/1wPchxwAssBf706VuvxhGp4ESt3vj-N9RLcMaUF075ug/edit?gid=137455637#gid=137455637')
         worksheet = sheet.get_worksheet(0)
-        return worksheet.get_all_records(), client, worksheet
+        return worksheet.get_all_records()
     except Exception as e:
         st.error(f"데이터 로드 중 오류 발생: {str(e)}")
-        return None, None, None
+        return None
+
+@st.cache_resource
+def get_sheet_instance():
+    """시트 인스턴스 가져오기"""
+    try:
+        credentials = {
+            "type": "service_account",
+            "project_id": st.secrets["gcp_service_account"]["project_id"],
+            "private_key_id": st.secrets["gcp_service_account"]["private_key_id"],
+            "private_key": st.secrets["gcp_service_account"]["private_key"],
+            "client_email": st.secrets["gcp_service_account"]["client_email"],
+            "client_id": st.secrets["gcp_service_account"]["client_id"],
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_x509_cert_url": st.secrets["gcp_service_account"]["client_x509_cert_url"],
+            "universe_domain": "googleapis.com"
+        }
+        
+        SCOPES = [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive'
+        ]
+        
+        creds = service_account.Credentials.from_service_account_info(
+            credentials, scopes=SCOPES)
+        client = gspread.authorize(creds)
+        
+        sheet = client.open_by_url('https://docs.google.com/spreadsheets/d/1wPchxwAssBf706VuvxhGp4ESt3vj-N9RLcMaUF075ug/edit?gid=137455637#gid=137455637')
+        return sheet.get_worksheet(0)
+    except Exception as e:
+        st.error(f"시트 연결 중 오류 발생: {str(e)}")
+        return None
+
 
 def calculate_danger_score(matches):
     """위험도 점수 계산"""
@@ -313,7 +347,7 @@ def main():
     """)
 
     # 데이터 로드
-    data, client, worksheet = load_sheet_data()
+    data = load_sheet_data()
     if data is None:
         st.error("데이터를 불러올 수 없습니다.")
         return
@@ -365,18 +399,23 @@ def main():
         if submit_button:
             if all([pattern_text, analysis_text]):
                 try:
-                    list_worksheet = worksheet
-                    list_worksheet.append_row([
-                        pattern_text,
-                        analysis_text,
-                        url,
-                        danger_level,
-                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    ])
-                    st.success("✅ 패턴이 등록되었습니다!")
-                    st.balloons()
-                    # 캐시된 데이터 갱신
-                    st.cache_data.clear()
+                    worksheet = get_sheet_instance()
+                    if worksheet:
+                        worksheet.append_row([
+                            pattern_text,
+                            analysis_text,
+                            url,
+                            danger_level,
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        ])
+                        st.success("✅ 패턴이 등록되었습니다!")
+                        st.balloons()
+                        # 캐시 갱신
+                        st.cache_data.clear()
+                        # 페이지 새로고침
+                        st.rerun()
+                    else:
+                        st.error("시트에 연결할 수 없습니다.")
                 except Exception as e:
                     st.error(f"😢 패턴 등록 중 오류가 발생했습니다: {str(e)}")
             else:
@@ -444,6 +483,7 @@ def main():
                     st.metric("고위험 패턴 수", len(df[df['위험도'] >= 70]))
         else:
             st.info("등록된 패턴이 없습니다.")
+
 
 if __name__ == "__main__":
     main()
