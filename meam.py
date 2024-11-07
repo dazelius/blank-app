@@ -138,6 +138,36 @@ st.markdown("""
         color: #E0E0E0;
         border-radius: 10px;
     }
+    /* 데이터베이스 테이블 스타일 */
+    .database-table {
+        margin-top: 2rem;
+        padding: 1rem;
+        background: #2D2D2D;
+        border-radius: 15px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+    
+    .database-title {
+        text-align: center;
+        padding: 1rem;
+        background: linear-gradient(135deg, #434343 0%, #000000 100%);
+        color: #E0E0E0;
+        border-radius: 10px;
+        margin-bottom: 1rem;
+    }
+    
+    .stDataFrame {
+        background-color: #2D2D2D;
+    }
+    
+    .stDataFrame td, .stDataFrame th {
+        color: #E0E0E0 !important;
+        background-color: #3D3D3D !important;
+    }
+    
+    .stDataFrame [data-testid="stDataFrameResizeHandle"] {
+        background-color: #4D4D4D;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -302,9 +332,9 @@ def main():
 
     with tab2:
         st.markdown("""
-        <div style='background-color: #f8f9fa; padding: 1rem; border-radius: 10px; margin-bottom: 1rem;'>
+        <div style='background-color: #2D2D2D; padding: 1rem; border-radius: 10px; margin-bottom: 1rem;'>
             <h4>🌟 새로운 패턴 등록</h4>
-            <p style='color: #666;'>새로운 위험 패턴을 등록해주세요.</p>
+            <p style='color: #E0E0E0;'>새로운 위험 패턴을 등록해주세요.</p>
         </div>
         """, unsafe_allow_html=True)
         
@@ -335,6 +365,65 @@ def main():
                     st.error(f"😢 패턴 등록 중 오류가 발생했습니다: {str(e)}")
             else:
                 st.warning("⚠️ 패턴과 분석 내용은 필수입니다!")
+        
+        # 데이터베이스 테이블 표시
+        st.markdown("""
+        <div class="database-title">
+            📊 현재 등록된 패턴 데이터베이스
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # 데이터프레임 생성 및 표시
+        if data:
+            import pandas as pd
+            df = pd.DataFrame(data)
+            
+            # 컬럼명 변경
+            column_mapping = {
+                'text': '패턴',
+                'output': '분석',
+                'url': '참고 URL',
+                'danger_level': '위험도',
+                'timestamp': '등록일시'
+            }
+            df = df.rename(columns=column_mapping)
+            
+            # 데이터프레임 정렬 (최신 등록순)
+            if 'timestamp' in data[0].keys():
+                df = df.sort_values(by='등록일시', ascending=False)
+            
+            # 검색/필터링 기능 추가
+            search_term = st.text_input("🔍 패턴 검색:", placeholder="검색어를 입력하세요...")
+            if search_term:
+                df = df[df['패턴'].str.contains(search_term, case=False, na=False) | 
+                    df['분석'].str.contains(search_term, case=False, na=False)]
+            
+            # 위험도 필터링
+            col1, col2 = st.columns(2)
+            with col1:
+                min_danger = st.number_input("최소 위험도:", min_value=0, max_value=100, value=0)
+            with col2:
+                max_danger = st.number_input("최대 위험도:", min_value=0, max_value=100, value=100)
+            df = df[(df['위험도'] >= min_danger) & (df['위험도'] <= max_danger)]
+            
+            # 테이블 표시
+            st.dataframe(
+                df,
+                use_container_width=True,
+                hide_index=True,
+                height=400
+            )
+            
+            # 통계 정보 표시
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("총 패턴 수", len(df))
+            with col2:
+                st.metric("평균 위험도", f"{df['위험도'].mean():.1f}")
+            with col3:
+                st.metric("고위험 패턴 수", len(df[df['위험도'] >= 70]))
+        else:
+            st.info("등록된 패턴이 없습니다.")
 
 if __name__ == "__main__":
     main()
