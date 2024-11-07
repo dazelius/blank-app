@@ -531,11 +531,14 @@ def analyze_file_contents(file_content, data):
             return None
     return None
 
-# display_file_analysis_results 함수 개선
 def display_file_analysis_results(analysis_results):
     """파일 분석 결과 표시 - 개선된 형식"""
     if not analysis_results or not analysis_results['results']:
         return
+    
+    # Calculate statistics
+    total_score = sum(result['score'] for result in analysis_results['results'])
+    avg_score = total_score / len(analysis_results['results']) if analysis_results['results'] else 0
     
     st.markdown("""
         <div class="database-title">
@@ -665,6 +668,7 @@ def display_file_analysis_results(analysis_results):
                 <div style="font-size: 2em; {get_color_style(total_score)}">{total_score}</div>
             </div>
         """, unsafe_allow_html=True)
+
     
     # 결과를 위험도 순으로 정렬
     sorted_results = sorted(analysis_results['results'], key=lambda x: x['score'], reverse=True)
