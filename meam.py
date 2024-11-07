@@ -265,8 +265,8 @@ def get_youtube_thumbnail(url):
         return f"https://img.youtube.com/vi/{video_id.group(1)}/hqdefault.jpg"
     return None
 
-def find_matching_patterns(input_text, data, threshold=0.8):  # threshold 값을 0.6에서 0.8로 상향
-    """입력 텍스트와 일치하는 패턴 찾기"""
+# find_matching_patterns 함수 개선
+def find_matching_patterns(input_text, data, threshold=0.85):  # threshold를 0.85로 상향 조정
     if not input_text.strip():
         return []
         
@@ -280,36 +280,31 @@ def find_matching_patterns(input_text, data, threshold=0.8):  # threshold 값을
         pattern_text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text)
         
         # 정확한 구문 매칭 (전체 문장 비교)
-        if difflib.SequenceMatcher(None, input_text_cleaned, pattern_text_cleaned).ratio() >= threshold:
-            matched_patterns.add(idx)
+        full_text_similarity = difflib.SequenceMatcher(None, input_text_cleaned, pattern_text_cleaned).ratio()
+        if full_text_similarity >= threshold:
+            matched_patterns.add((idx, full_text_similarity))
+            continue
+        
+        # 단어 단위 매칭 개선
+        pattern_words = pattern_text_cleaned.split()
+        if not pattern_words:  # 빈 패턴 무시
             continue
             
-        # 단어 단위 매칭
-        pattern_words = pattern_text_cleaned.split()
-        matched_words = 0
-        total_unique_words = len(set(pattern_words))
+        # 연속된 단어 시퀀스 매칭 (N-gram 방식)
+        max_sequence_similarity = 0
+        pattern_length = len(pattern_words)
         
-        for pattern_word in pattern_words:
-            # 단어 길이가 2글자 이상인 경우에만 매칭 시도
-            if len(pattern_word) >= 2:
-                for input_word in input_words:
-                    if len(input_word) >= 2:
-                        # 정확한 단어 매칭
-                        if input_word == pattern_word:
-                            matched_words += 1
-                            break
-                        # 유사도 기반 매칭 (단어 길이가 비슷한 경우에만)
-                        elif abs(len(input_word) - len(pattern_word)) <= 2:
-                            similarity = difflib.SequenceMatcher(None, input_word, pattern_word).ratio()
-                            if similarity >= threshold:
-                                matched_words += 1
-                                break
+        for i in range(len(input_words) - pattern_length + 1):
+            input_sequence = ' '.join(input_words[i:i + pattern_length])
+            pattern_sequence = ' '.join(pattern_words)
+            sequence_similarity = difflib.SequenceMatcher(None, input_sequence, pattern_sequence).ratio()
+            max_sequence_similarity = max(max_sequence_similarity, sequence_similarity)
         
-        # 일정 비율 이상의 단어가 매칭되는 경우에만 패턴으로 인정
-        if total_unique_words > 0 and (matched_words / total_unique_words) >= 0.7:  # 70% 이상 일치해야 함
-            matched_patterns.add(idx)
+        if max_sequence_similarity >= threshold:
+            matched_patterns.add((idx, max_sequence_similarity))
     
-    for idx in matched_patterns:
+    # 매칭된 패턴 정보 수집
+    for idx, similarity in matched_patterns:
         record = data[idx]
         pattern_info = {
             'pattern': record['text'],
@@ -317,8 +312,7 @@ def find_matching_patterns(input_text, data, threshold=0.8):  # threshold 값을
             'danger_level': int(record.get('dangerlevel', 0)),
             'url': record.get('url', ''),
             'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'match_score': difflib.SequenceMatcher(None, input_text_cleaned, 
-                                                 re.sub(r'[^가-힣a-zA-Z0-9\s]', '', record['text'].lower())).ratio()
+            'match_score': similarity
         }
         # 썸네일 추가
         thumbnail = get_youtube_thumbnail(pattern_info['url'])
@@ -420,49 +414,90 @@ def analyze_file_contents(file_content, data):
             return None
     return None
 
+# display_file_analysis_results 함수 개선
 def display_file_analysis_results(analysis_results):
-    """파일 분석 결과 표시"""
+    """파일 분석 결과 표시 - 위험도에 따른 색상 적용"""
     if not analysis_results or not analysis_results['results']:
         return
     
-    # 전체 통계
     st.markdown("""
         <div class="database-title">
             📊 파일 분석 결과
         </div>
     """, unsafe_allow_html=True)
     
+    # 전체 통계 계산
     total_score = sum(result['score'] for result in analysis_results['results'])
     avg_score = total_score / len(analysis_results['results'])
     
+    # 위험도에 따른 색상 정의
+    def get_color_style(score):
+        if score >= 70:
+            return "color: #FF5252; font-weight: bold;"  # 빨간색
+        elif score >= 30:
+            return "color: #FFD700; font-weight: bold;"  # 노란색
+        else:
+            return "color: #00E676; font-weight: bold;"  # 초록색
+    
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("분석된 패턴 수", analysis_results['total_patterns'])
+        st.markdown(f"""
+            <div style="text-align: center; padding: 10px; background-color: #2D2D2D; border-radius: 10px;">
+                <div style="font-size: 1.2em;">분석된 패턴 수</div>
+                <div style="font-size: 2em; {get_color_style(0)}">{analysis_results['total_patterns']}</div>
+            </div>
+        """, unsafe_allow_html=True)
     with col2:
-        st.metric("평균 위험도", f"{avg_score:.1f}")
+        st.markdown(f"""
+            <div style="text-align: center; padding: 10px; background-color: #2D2D2D; border-radius: 10px;">
+                <div style="font-size: 1.2em;">평균 위험도</div>
+                <div style="font-size: 2em; {get_color_style(avg_score)}">{avg_score:.1f}</div>
+            </div>
+        """, unsafe_allow_html=True)
     with col3:
-        st.metric("총 위험도", total_score)
+        st.markdown(f"""
+            <div style="text-align: center; padding: 10px; background-color: #2D2D2D; border-radius: 10px;">
+                <div style="font-size: 1.2em;">총 위험도</div>
+                <div style="font-size: 2em; {get_color_style(total_score)}">{total_score}</div>
+            </div>
+        """, unsafe_allow_html=True)
     
-    # 상세 결과
-    for result in analysis_results['results']:
-        with st.expander(f"🔍 검출된 텍스트: {result['text'][:100]}... (컬럼: {result['column']})"):
-            st.markdown(f"**원본 텍스트:** {result['text']}")
-            st.markdown(f"**검출된 컬럼:** {result['column']}")
-            st.markdown(f"**위험도 점수:** {result['score']}")
+    # 결과를 위험도 순으로 정렬
+    sorted_results = sorted(analysis_results['results'], key=lambda x: x['score'], reverse=True)
+    
+    # 상세 결과 표시
+    for result in sorted_results:
+        with st.expander(
+            f"🔍 검출된 텍스트: {result['text'][:100]}... (위험도: {result['score']})", 
+            expanded=result['score'] >= 70  # 고위험 항목은 자동 확장
+        ):
+            st.markdown(f"""
+                <div style="padding: 15px; background-color: #2D2D2D; border-radius: 10px; margin-bottom: 10px;">
+                    <div style="font-weight: bold;">원본 텍스트:</div>
+                    <div style="padding: 10px; background-color: #3D3D3D; border-radius: 5px; margin-top: 5px;">{result['text']}</div>
+                    <div style="margin-top: 10px;">
+                        <span style="font-weight: bold;">검출된 컬럼:</span> {result['column']}
+                    </div>
+                    <div style="margin-top: 5px;">
+                        <span style="font-weight: bold;">위험도 점수:</span> 
+                        <span style="{get_color_style(result['score'])}">{result['score']}</span>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
             
             # 개별 패턴 표시
             for pattern in result['patterns']:
-                danger_level_class = get_danger_level_class(pattern['danger_level'])
+                danger_style = get_color_style(pattern['danger_level'])
                 thumbnail_html = ""
                 if 'thumbnail' in pattern:
                     thumbnail_html = f'<img src="{pattern["thumbnail"]}" style="width:100%; max-width:480px; border-radius:10px; margin-top:10px;">'
                 
                 st.markdown(f"""
-                    <div class="analysis-card">
+                    <div class="analysis-card" style="border-left: 4px solid {danger_style.split(';')[0].split(':')[1].strip()};">
                         <h3>🔍 발견된 패턴: {pattern['pattern']}</h3>
-                        <p>📊 위험도: <span class="{danger_level_class}">{pattern['danger_level']}</span></p>
+                        <p>📊 위험도: <span style="{danger_style}">{pattern['danger_level']}</span></p>
                         <p>📝 분석: {pattern['analysis']}</p>
-                        {f'<p>🔗 <a href="{pattern["url"]}" target="_blank">참고 자료</a></p>' if pattern['url'] else ''}
+                        {f'<p>🔗 <a href="{pattern["url"]}" target="_blank">참고 자료</a></p>' if pattern["url"] else ''}
                         {thumbnail_html}
                     </div>
                 """, unsafe_allow_html=True)
