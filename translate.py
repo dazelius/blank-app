@@ -57,32 +57,68 @@ class KoreanTextSimilarity:
     
     def calculate_similarity(self, text1, text2):
         """한국어 텍스트 유사도 계산"""
-        # 기본 문자열 유사도
-        base_similarity = SequenceMatcher(None, text1, text2).ratio()
-        
-        # 형태소 기반 유사도
+        # 입력 텍스트가 같으면 100% 반환
+        if text1 == text2:
+            return 100.0
+            
+        # 형태소 분석
         processed1 = self.preprocess_text(text1)
         processed2 = self.preprocess_text(text2)
         
-        # 공통 형태소 비율 계산
-        common_morphs = set(processed1) & set(processed2)
-        total_morphs = set(processed1) | set(processed2)
-        morph_similarity = len(common_morphs) / len(total_morphs) if total_morphs else 0
+        # 1. 형태소 집합 유사도 (Jaccard similarity)
+        morph_set1 = set(processed1)
+        morph_set2 = set(processed2)
+        morph_intersection = len(morph_set1 & morph_set2)
+        morph_union = len(morph_set1 | morph_set2)
+        jaccard_sim = morph_intersection / morph_union if morph_union > 0 else 0
         
-        # 형태소 시퀀스 유사도
+        # 2. 형태소 시퀀스 유사도
         seq_similarity = SequenceMatcher(None, ' '.join(processed1), ' '.join(processed2)).ratio()
         
-        # 최종 유사도 점수 계산 (가중치 적용)
-        final_similarity = (base_similarity * 0.3 + 
-                          morph_similarity * 0.4 + 
-                          seq_similarity * 0.3)
+        # 3. 형태소 순서 유사도 (LCS 기반)
+        def lcs_length(X, Y):
+            m, n = len(X), len(Y)
+            L = [[0] * (n + 1) for _ in range(m + 1)]
+            for i in range(m + 1):
+                for j in range(n + 1):
+                    if i == 0 or j == 0:
+                        L[i][j] = 0
+                    elif X[i-1] == Y[j-1]:
+                        L[i][j] = L[i-1][j-1] + 1
+                    else:
+                        L[i][j] = max(L[i-1][j], L[i][j-1])
+            return L[m][n]
         
-        return final_similarity * 100  # 백분율로 변환
+        lcs_sim = 2 * lcs_length(processed1, processed2) / (len(processed1) + len(processed2)) if processed1 and processed2 else 0
+        
+        # 가중치 조정
+        # - 형태소 집합 유사도: 40%
+        # - 형태소 시퀀스 유사도: 30%
+        # - 형태소 순서 유사도: 30%
+        final_similarity = (
+            jaccard_sim * 0.4 +
+            seq_similarity * 0.3 +
+            lcs_sim * 0.3
+        ) * 100
+        
+        # 최소 임계값 적용 (10% 미만은 0으로 처리)
+        return final_similarity if final_similarity >= 10 else 0
     
     def check_similarity_threshold(self, text1, text2, threshold=50):
         """임계값 기반 유사도 검사"""
+        # 빈 문자열 체크
+        if not text1.strip() or not text2.strip():
+            return False, 0
+            
+        # 완전히 같은 텍스트인 경우
+        if text1 == text2:
+            return True, 100
+        
         similarity = self.calculate_similarity(text1, text2)
-        return similarity >= threshold, similarity
+        
+        # 더 엄격한 임계값 적용
+        actual_threshold = max(threshold, 50)  # 최소 50% 이상
+        return similarity >= actual_threshold, similarity
 
 def filter_similar_texts(search_text, text_list, threshold=50):
     """유사한 텍스트 필터링"""
