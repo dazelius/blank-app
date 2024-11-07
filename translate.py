@@ -120,6 +120,48 @@ class KoreanTextSimilarity:
         actual_threshold = max(threshold, 50)  # 최소 50% 이상
         return similarity >= actual_threshold, similarity
 
+def display_similar_texts(similar_texts):
+    """위험도에 따른 색상 구분된 유사 텍스트 표시"""
+    for item in similar_texts:
+        similarity = item['similarity']
+        text = item['text']
+        
+        # 위험도에 따른 색상 및 이모지 결정
+        if similarity >= 80:
+            color = "red"
+            emoji = "🔴"
+            risk = "매우 높음"
+        elif similarity >= 65:
+            color = "orange"
+            emoji = "🟠"
+            risk = "높음"
+        elif similarity >= 50:
+            color = "yellow"
+            emoji = "🟡"
+            risk = "중간"
+        else:
+            color = "green"
+            emoji = "🟢"
+            risk = "낮음"
+            
+        # HTML로 스타일링된 텍스트 표시
+        st.markdown(
+            f"""
+            <div style="
+                padding: 10px; 
+                border-radius: 5px; 
+                margin: 5px 0;
+                background-color: rgba({color}, 0.1);
+                border-left: 5px solid {color}
+            ">
+                {emoji} <strong>위험도: {risk}</strong> (유사도: {similarity:.1f}%)<br>
+                <span style="color: {color};">{text}</span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+
 def filter_similar_texts(search_text, text_list, threshold=50):
     """유사한 텍스트 필터링"""
     similarity_checker = KoreanTextSimilarity()
