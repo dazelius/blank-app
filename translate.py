@@ -8,6 +8,9 @@ import os
 import base64
 from openai import OpenAI
 import traceback
+from difflib import SequenceMatcher
+from konlpy.tag import Okt
+import numpy as np
 
 # 페이지 설정
 st.set_page_config(
@@ -39,6 +42,66 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
+
+class KoreanTextSimilarity:
+    def __init__(self):
+        self.okt = Okt()
+        
+    def preprocess_text(self, text):
+        """텍스트 전처리: 형태소 분석 및 정규화"""
+        # 형태소 분석
+        morphs = self.okt.morphs(text, stem=True)
+        # 공백 제거 및 소문자 변환
+        normalized = [m.strip().lower() for m in morphs if m.strip()]
+        return normalized
+    
+    def calculate_similarity(self, text1, text2):
+        """한국어 텍스트 유사도 계산"""
+        # 기본 문자열 유사도
+        base_similarity = SequenceMatcher(None, text1, text2).ratio()
+        
+        # 형태소 기반 유사도
+        processed1 = self.preprocess_text(text1)
+        processed2 = self.preprocess_text(text2)
+        
+        # 공통 형태소 비율 계산
+        common_morphs = set(processed1) & set(processed2)
+        total_morphs = set(processed1) | set(processed2)
+        morph_similarity = len(common_morphs) / len(total_morphs) if total_morphs else 0
+        
+        # 형태소 시퀀스 유사도
+        seq_similarity = SequenceMatcher(None, ' '.join(processed1), ' '.join(processed2)).ratio()
+        
+        # 최종 유사도 점수 계산 (가중치 적용)
+        final_similarity = (base_similarity * 0.3 + 
+                          morph_similarity * 0.4 + 
+                          seq_similarity * 0.3)
+        
+        return final_similarity * 100  # 백분율로 변환
+    
+    def check_similarity_threshold(self, text1, text2, threshold=50):
+        """임계값 기반 유사도 검사"""
+        similarity = self.calculate_similarity(text1, text2)
+        return similarity >= threshold, similarity
+
+def filter_similar_texts(search_text, text_list, threshold=50):
+    """유사한 텍스트 필터링"""
+    similarity_checker = KoreanTextSimilarity()
+    similar_texts = []
+    
+    for text in text_list:
+        is_similar, similarity = similarity_checker.check_similarity_threshold(
+            search_text, text, threshold
+        )
+        if is_similar:
+            similar_texts.append({
+                'text': text,
+                'similarity': similarity
+            })
+    
+    # 유사도 순으로 정렬
+    similar_texts.sort(key=lambda x: x['similarity'], reverse=True)
+    return similar_texts
 
 def init_session_state():
     """세션 상태 초기화"""
@@ -298,6 +361,19 @@ def main():
             df = pd.read_excel(uploaded_file)
             text_column = find_text_column(df)
             st.info(f"'{text_column}' 열이 번역 대상으로 선택되었습니다.")
+            
+            # 검색 기능 추가
+            search_text = st.text_input("텍스트 검색 (유사도 기반)")
+            if search_text:
+                texts = df[text_column].dropna().tolist()
+                similar_texts = filter_similar_texts(search_text, texts)
+                
+                if similar_texts:
+                    st.subheader("유사한 텍스트")
+                    for item in similar_texts:
+                        st.write(f"- {item['text']} (유사도: {item['similarity']:.2f}%)")
+                else:
+                    st.info("유사한 텍스트를 찾지 못했습니다.")
             
             if st.button("번역 시작"):
                 progress_bar = st.progress(0)
