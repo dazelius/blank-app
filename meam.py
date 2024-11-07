@@ -6,6 +6,7 @@ import difflib
 import json
 from datetime import datetime
 import os
+import pandas as pd
 
 # 페이지 설정
 st.set_page_config(
@@ -171,8 +172,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-def setup_google_auth():
-    """Google Sheets API 인증 설정"""
+@st.cache_data(ttl=300)
+def load_sheet_data():
+    """Google Sheets 데이터 로드"""
     try:
         credentials = {
             "type": "service_account",
@@ -196,11 +198,13 @@ def setup_google_auth():
         creds = service_account.Credentials.from_service_account_info(
             credentials, scopes=SCOPES)
         client = gspread.authorize(creds)
-        return client
+        
+        sheet = client.open_by_url('https://docs.google.com/spreadsheets/d/1wPchxwAssBf706VuvxhGp4ESt3vj-N9RLcMaUF075ug/edit?gid=137455637#gid=137455637')
+        worksheet = sheet.get_worksheet(0)
+        return worksheet.get_all_records(), client, worksheet
     except Exception as e:
-        st.error(f"인증 오류가 발생했습니다: {str(e)}")
-        return None
-
+        st.error(f"데이터 로드 중 오류 발생: {str(e)}")
+        return None, None, None
 
 def calculate_danger_score(matches):
     """위험도 점수 계산"""
@@ -218,6 +222,15 @@ def get_danger_level_class(score):
     else:
         return "danger-level-high"
 
+def get_youtube_thumbnail(url):
+    """유튜브 URL에서 썸네일 URL 추출"""
+    if not url:
+        return None
+    video_id = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)
+    if video_id and 'youtube.com' in url:
+        return f"https://img.youtube.com/vi/{video_id.group(1)}/hqdefault.jpg"
+    return None
+
 def find_matching_patterns(input_text, data, threshold=0.6):
     """입력 텍스트와 일치하는 패턴 찾기"""
     if not input_text.strip():
@@ -228,17 +241,20 @@ def find_matching_patterns(input_text, data, threshold=0.6):
     input_words = input_text_cleaned.split()
     matched_patterns = set()
     
-    patterns_cleaned = [re.sub(r'[^가-힣a-zA-Z0-9\s]', '', record['text'].lower()) for record in data]
-    
-    for idx, pattern_text in enumerate(patterns_cleaned):
-        if any(word in pattern_text for word in input_words):
+    for idx, record in enumerate(data):
+        pattern_text = record.get('text', '').lower()
+        pattern_text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text)
+        
+        # 단어 매칭
+        if any(word in pattern_text_cleaned for word in input_words):
             matched_patterns.add(idx)
             continue
-            
-        pattern_words = pattern_text.split()
+        
+        # 유사도 매칭
+        pattern_words = pattern_text_cleaned.split()
         for input_word in input_words:
             for pattern_word in pattern_words:
-                if (input_word in pattern_word or pattern_word in input_word):
+                if len(input_word) > 1 and (input_word in pattern_word or pattern_word in input_word):
                     matched_patterns.add(idx)
                     break
                 if len(input_word) > 1:
@@ -252,24 +268,20 @@ def find_matching_patterns(input_text, data, threshold=0.6):
         pattern_info = {
             'pattern': record['text'],
             'analysis': record['output'],
-            'danger_level': int(record.get('dangerlevel', 0)),  # dangerlevel로 수정
+            'danger_level': int(record.get('dangerlevel', 0)),
             'url': record.get('url', ''),
             'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
-        # 썸네일 URL 생성
-        if pattern_info['url'] and 'youtube.com' in pattern_info['url']:
-            video_id = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", pattern_info['url'])
-            if video_id:
-                pattern_info['thumbnail'] = f"https://img.youtube.com/vi/{video_id.group(1)}/hqdefault.jpg"
+        # 썸네일 추가
+        thumbnail = get_youtube_thumbnail(pattern_info['url'])
+        if thumbnail:
+            pattern_info['thumbnail'] = thumbnail
         found_patterns.append(pattern_info)
     
     return found_patterns
 
-
-
 def display_analysis_results(patterns, total_score):
     """분석 결과 표시"""
-    # 전체 위험도 점수 표시
     danger_level_class = get_danger_level_class(total_score)
     st.markdown(f"""
         <div class="danger-meter">
@@ -278,7 +290,6 @@ def display_analysis_results(patterns, total_score):
         </div>
     """, unsafe_allow_html=True)
     
-    # 개별 패턴 분석 결과 표시
     for pattern in patterns:
         danger_level_class = get_danger_level_class(pattern['danger_level'])
         thumbnail_html = ""
@@ -295,39 +306,16 @@ def display_analysis_results(patterns, total_score):
             </div>
         """, unsafe_allow_html=True)
 
-# 데이터프레임 표시 부분도 수정
-if data:
-    import pandas as pd
-    df = pd.DataFrame(data)
-    
-    # 컬럼명 변경
-    column_mapping = {
-        'text': '패턴',
-        'output': '분석',
-        'url': '참고 URL',
-        'dangerlevel': '위험도',  # dangerlevel로 수정
-        'timestamp': '등록일시'
-    }
-
 def main():
-    # 헤더
     st.markdown('<h1 class="main-title">⚠️위험 수위 발언 분석⚠️</h1>', unsafe_allow_html=True)
     st.markdown("""
     > 💡 입력된 문장의 위험도를 분석하고 점수화하여 보여드립니다.
     """)
 
-    # Google Sheets 연결 설정
-    client = setup_google_auth()
-    if not client:
-        st.error("Google Sheets 연결에 실패했습니다.")
-        return
-
-    try:
-        sheet = client.open_by_url('https://docs.google.com/spreadsheets/d/1wPchxwAssBf706VuvxhGp4ESt3vj-N9RLcMaUF075ug/edit?gid=137455637#gid=137455637')
-        worksheet = sheet.get_worksheet(0)
-        data = worksheet.get_all_records()
-    except Exception as e:
-        st.error(f"스프레드시트 접근 오류: {str(e)}")
+    # 데이터 로드
+    data, client, worksheet = load_sheet_data()
+    if data is None:
+        st.error("데이터를 불러올 수 없습니다.")
         return
 
     # 탭 생성
@@ -356,7 +344,6 @@ def main():
                 else:
                     st.info("👀 특별한 위험 패턴이 발견되지 않았습니다.")
 
-    # with tab2 부분을 수정:
     with tab2:
         st.markdown("""
         <div style='background-color: #2D2D2D; padding: 1rem; border-radius: 10px; margin-bottom: 1rem;'>
@@ -378,7 +365,7 @@ def main():
         if submit_button:
             if all([pattern_text, analysis_text]):
                 try:
-                    list_worksheet = sheet.worksheet('DataBase')
+                    list_worksheet = worksheet
                     list_worksheet.append_row([
                         pattern_text,
                         analysis_text,
@@ -388,6 +375,8 @@ def main():
                     ])
                     st.success("✅ 패턴이 등록되었습니다!")
                     st.balloons()
+                    # 캐시된 데이터 갱신
+                    st.cache_data.clear()
                 except Exception as e:
                     st.error(f"😢 패턴 등록 중 오류가 발생했습니다: {str(e)}")
             else:
@@ -400,20 +389,16 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         
-        # 데이터프레임 생성 및 표시 부분 수정
+        # 데이터프레임 생성 및 표시
         if data:
-            import pandas as pd
             df = pd.DataFrame(data)
             
-            # 실제 데이터의 컬럼명 확인
-            print("Available columns:", df.columns.tolist())  # 디버깅용
-            
-            # 컬럼명 변경 (실제 스프레드시트의 컬럼명에 맞게 수정)
+            # 컬럼명 변경
             column_mapping = {
                 'text': '패턴',
                 'output': '분석',
                 'url': '참고 URL',
-                'dangerlevel': '위험도',  # 스프레드시트의 실제 컬럼명에 맞춰 수정
+                'dangerlevel': '위험도',
                 'timestamp': '등록일시'
             }
             
@@ -422,14 +407,14 @@ def main():
                 if old_col in df.columns:
                     df = df.rename(columns={old_col: new_col})
             
-            # 검색/필터링 기능 추가
+            # 검색/필터링 기능
             search_term = st.text_input("🔍 패턴 검색:", placeholder="검색어를 입력하세요...")
             if search_term:
                 pattern_mask = df['패턴'].astype(str).str.contains(search_term, case=False, na=False)
                 analysis_mask = df['분석'].astype(str).str.contains(search_term, case=False, na=False)
                 df = df[pattern_mask | analysis_mask]
             
-            # 위험도 필터링 (위험도 컬럼이 있는 경우에만)
+            # 위험도 필터링
             if '위험도' in df.columns:
                 col1, col2 = st.columns(2)
                 with col1:
@@ -437,7 +422,6 @@ def main():
                 with col2:
                     max_danger = st.number_input("최대 위험도:", min_value=0, max_value=100, value=100)
                 
-                # 위험도 컬럼을 숫자형으로 변환
                 df['위험도'] = pd.to_numeric(df['위험도'], errors='coerce')
                 df = df[(df['위험도'] >= min_danger) & (df['위험도'] <= max_danger)]
             
@@ -449,7 +433,7 @@ def main():
                 height=400
             )
             
-            # 통계 정보 표시 (위험도 컬럼이 있는 경우에만)
+            # 통계 정보 표시
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("총 패턴 수", len(df))
