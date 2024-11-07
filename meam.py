@@ -252,13 +252,20 @@ def find_matching_patterns(input_text, data, threshold=0.6):
         pattern_info = {
             'pattern': record['text'],
             'analysis': record['output'],
-            'danger_level': int(record.get('danger_level', 0)),
+            'danger_level': int(record.get('dangerlevel', 0)),  # dangerlevel로 수정
             'url': record.get('url', ''),
             'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
+        # 썸네일 URL 생성
+        if pattern_info['url'] and 'youtube.com' in pattern_info['url']:
+            video_id = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", pattern_info['url'])
+            if video_id:
+                pattern_info['thumbnail'] = f"https://img.youtube.com/vi/{video_id.group(1)}/hqdefault.jpg"
         found_patterns.append(pattern_info)
     
     return found_patterns
+
+
 
 def display_analysis_results(patterns, total_score):
     """분석 결과 표시"""
@@ -274,14 +281,33 @@ def display_analysis_results(patterns, total_score):
     # 개별 패턴 분석 결과 표시
     for pattern in patterns:
         danger_level_class = get_danger_level_class(pattern['danger_level'])
+        thumbnail_html = ""
+        if 'thumbnail' in pattern:
+            thumbnail_html = f'<img src="{pattern["thumbnail"]}" style="width:100%; max-width:480px; border-radius:10px; margin-top:10px;">'
+        
         st.markdown(f"""
             <div class="analysis-card">
                 <h3>🔍 발견된 패턴: {pattern['pattern']}</h3>
                 <p>📊 위험도: <span class="{danger_level_class}">{pattern['danger_level']}</span></p>
                 <p>📝 분석: {pattern['analysis']}</p>
                 {f'<p>🔗 <a href="{pattern["url"]}" target="_blank">참고 자료</a></p>' if pattern['url'] else ''}
+                {thumbnail_html}
             </div>
         """, unsafe_allow_html=True)
+
+# 데이터프레임 표시 부분도 수정
+if data:
+    import pandas as pd
+    df = pd.DataFrame(data)
+    
+    # 컬럼명 변경
+    column_mapping = {
+        'text': '패턴',
+        'output': '분석',
+        'url': '참고 URL',
+        'dangerlevel': '위험도',  # dangerlevel로 수정
+        'timestamp': '등록일시'
+    }
 
 def main():
     # 헤더
