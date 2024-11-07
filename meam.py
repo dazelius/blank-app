@@ -266,7 +266,7 @@ def get_youtube_thumbnail(url):
     return None
 
 # find_matching_patterns 함수 개선
-def find_matching_patterns(input_text, data, threshold=0.85):  # threshold를 0.85로 상향 조정
+def find_matching_patterns(input_text, data, threshold=0.7):  # threshold를 0.7로 조정
     if not input_text.strip():
         return []
         
@@ -278,30 +278,57 @@ def find_matching_patterns(input_text, data, threshold=0.85):  # threshold를 0.
     for idx, record in enumerate(data):
         pattern_text = record.get('text', '').lower()
         pattern_text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text)
-        
-        # 정확한 구문 매칭 (전체 문장 비교)
-        full_text_similarity = difflib.SequenceMatcher(None, input_text_cleaned, pattern_text_cleaned).ratio()
-        if full_text_similarity >= threshold:
-            matched_patterns.add((idx, full_text_similarity))
-            continue
-        
-        # 단어 단위 매칭 개선
         pattern_words = pattern_text_cleaned.split()
+        
         if not pattern_words:  # 빈 패턴 무시
             continue
             
-        # 연속된 단어 시퀀스 매칭 (N-gram 방식)
-        max_sequence_similarity = 0
-        pattern_length = len(pattern_words)
+        # 1. 전체 문장 유사도 검사
+        full_text_similarity = difflib.SequenceMatcher(None, input_text_cleaned, pattern_text_cleaned).ratio()
         
-        for i in range(len(input_words) - pattern_length + 1):
-            input_sequence = ' '.join(input_words[i:i + pattern_length])
-            pattern_sequence = ' '.join(pattern_words)
-            sequence_similarity = difflib.SequenceMatcher(None, input_sequence, pattern_sequence).ratio()
-            max_sequence_similarity = max(max_sequence_similarity, sequence_similarity)
+        # 2. 부분 문자열 포함 여부 검사
+        contains_pattern = pattern_text_cleaned in input_text_cleaned
         
-        if max_sequence_similarity >= threshold:
-            matched_patterns.add((idx, max_sequence_similarity))
+        # 3. 개별 단어 매칭 검사
+        word_match_count = 0
+        total_words = len(pattern_words)
+        matched_words = set()
+        
+        for pattern_word in pattern_words:
+            if len(pattern_word) >= 2:  # 2글자 이상의 단어만 검사
+                for input_word in input_words:
+                    if len(input_word) >= 2:
+                        # 정확한 단어 매칭
+                        if pattern_word == input_word:
+                            word_match_count += 1
+                            matched_words.add(pattern_word)
+                            break
+                        # 유사도 기반 단어 매칭
+                        elif abs(len(input_word) - len(pattern_word)) <= 2:
+                            word_similarity = difflib.SequenceMatcher(None, pattern_word, input_word).ratio()
+                            if word_similarity >= 0.8:  # 단어 수준에서는 더 높은 정확도 요구
+                                word_match_count += word_similarity
+                                matched_words.add(pattern_word)
+                                break
+        
+        word_match_ratio = word_match_count / total_words if total_words > 0 else 0
+        
+        # 매칭 조건 완화 및 통합
+        # 1. 전체 문장 유사도가 높은 경우
+        # 2. 패턴이 입력 텍스트에 포함된 경우
+        # 3. 개별 단어 매칭 비율이 높은 경우
+        if (full_text_similarity >= threshold or 
+            contains_pattern or 
+            word_match_ratio >= threshold):
+            
+            # 최종 유사도 점수 계산 (각 요소를 가중치를 주어 반영)
+            final_similarity = max(
+                full_text_similarity,
+                1.0 if contains_pattern else 0.0,
+                word_match_ratio
+            )
+            
+            matched_patterns.add((idx, final_similarity))
     
     # 매칭된 패턴 정보 수집
     for idx, similarity in matched_patterns:
@@ -312,12 +339,15 @@ def find_matching_patterns(input_text, data, threshold=0.85):  # threshold를 0.
             'danger_level': int(record.get('dangerlevel', 0)),
             'url': record.get('url', ''),
             'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'match_score': similarity
+            'match_score': similarity,
+            'original_text': input_text  # 원본 텍스트 저장
         }
+        
         # 썸네일 추가
         thumbnail = get_youtube_thumbnail(pattern_info['url'])
         if thumbnail:
             pattern_info['thumbnail'] = thumbnail
+        
         found_patterns.append(pattern_info)
     
     # 매치 점수로 정렬
