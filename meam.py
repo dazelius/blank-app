@@ -340,6 +340,114 @@ def display_analysis_results(patterns, total_score):
             </div>
         """, unsafe_allow_html=True)
 
+def analyze_file_contents(file_content, data):
+    """파일 내용 분석"""
+    results = []
+    
+    if file_content is not None:
+        try:
+            # 파일 확장자 확인
+            file_type = file_content.name.split('.')[-1].lower()
+            
+            if file_type == 'csv':
+                df = pd.read_csv(file_content)
+            elif file_type in ['xlsx', 'xls']:
+                df = pd.read_excel(file_content)
+            else:
+                st.error("지원하지 않는 파일 형식입니다. CSV 또는 Excel 파일만 지원합니다.")
+                return None
+            
+            # 모든 텍스트 컬럼 분석
+            text_columns = df.select_dtypes(include=['object']).columns
+            total_patterns_found = 0
+            all_results = []
+            
+            # 프로그레스 바 생성
+            progress_bar = st.progress(0)
+            progress_text = st.empty()
+            
+            for idx, col in enumerate(text_columns):
+                for text in df[col].dropna():
+                    if isinstance(text, str):  # 문자열인 경우만 분석
+                        patterns = find_matching_patterns(text, data)
+                        if patterns:
+                            score = calculate_danger_score(patterns)
+                            all_results.append({
+                                'text': text,
+                                'column': col,
+                                'patterns': patterns,
+                                'score': score
+                            })
+                            total_patterns_found += len(patterns)
+                
+                # 진행률 업데이트
+                progress = (idx + 1) / len(text_columns)
+                progress_bar.progress(progress)
+                progress_text.text(f'분석 진행 중... {int(progress * 100)}%')
+            
+            # 프로그레스 바와 텍스트 제거
+            progress_bar.empty()
+            progress_text.empty()
+            
+            return {
+                'total_patterns': total_patterns_found,
+                'results': all_results
+            }
+            
+        except Exception as e:
+            st.error(f"파일 분석 중 오류가 발생했습니다: {str(e)}")
+            return None
+    return None
+
+def display_file_analysis_results(analysis_results):
+    """파일 분석 결과 표시"""
+    if not analysis_results or not analysis_results['results']:
+        return
+    
+    # 전체 통계
+    st.markdown("""
+        <div class="database-title">
+            📊 파일 분석 결과
+        </div>
+    """, unsafe_allow_html=True)
+    
+    total_score = sum(result['score'] for result in analysis_results['results'])
+    avg_score = total_score / len(analysis_results['results'])
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("분석된 패턴 수", analysis_results['total_patterns'])
+    with col2:
+        st.metric("평균 위험도", f"{avg_score:.1f}")
+    with col3:
+        st.metric("총 위험도", total_score)
+    
+    # 상세 결과
+    for result in analysis_results['results']:
+        with st.expander(f"🔍 검출된 텍스트: {result['text'][:100]}... (컬럼: {result['column']})"):
+            st.markdown(f"**원본 텍스트:** {result['text']}")
+            st.markdown(f"**검출된 컬럼:** {result['column']}")
+            st.markdown(f"**위험도 점수:** {result['score']}")
+            
+            # 개별 패턴 표시
+            for pattern in result['patterns']:
+                danger_level_class = get_danger_level_class(pattern['danger_level'])
+                thumbnail_html = ""
+                if 'thumbnail' in pattern:
+                    thumbnail_html = f'<img src="{pattern["thumbnail"]}" style="width:100%; max-width:480px; border-radius:10px; margin-top:10px;">'
+                
+                st.markdown(f"""
+                    <div class="analysis-card">
+                        <h3>🔍 발견된 패턴: {pattern['pattern']}</h3>
+                        <p>📊 위험도: <span class="{danger_level_class}">{pattern['danger_level']}</span></p>
+                        <p>📝 분석: {pattern['analysis']}</p>
+                        {f'<p>🔗 <a href="{pattern["url"]}" target="_blank">참고 자료</a></p>' if pattern['url'] else ''}
+                        {thumbnail_html}
+                    </div>
+                """, unsafe_allow_html=True)
+
+
+
 def main():
     st.markdown('<h1 class="main-title">⚠️위험 수위 발언 분석⚠️</h1>', unsafe_allow_html=True)
     st.markdown("""
@@ -356,27 +464,47 @@ def main():
     tab1, tab2 = st.tabs(["🔍 문장 분석", "✏️ 패턴 등록"])
 
     with tab1:
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            input_text = st.text_area(
-                "분석할 문장을 입력하세요:",
-                placeholder="분석하고 싶은 문장을 입력해주세요...",
-                height=100
-            )
-        with col2:
-            st.write("")
-            st.write("")
-            analyze_button = st.button("🔍 위험도 분석", use_container_width=True, key="analyze")
+        analysis_type = st.radio(
+            "분석 유형 선택:",
+            ["텍스트 직접 입력", "파일 업로드"],
+            horizontal=True
+        )
         
-        if analyze_button and input_text:
-            with st.spinner('🔄 문장을 분석하고 있습니다...'):
-                found_patterns = find_matching_patterns(input_text, data)
-                if found_patterns:
-                    total_score = calculate_danger_score(found_patterns)
-                    st.success(f"🎯 분석이 완료되었습니다! {len(found_patterns)}개의 패턴이 발견되었습니다.")
-                    display_analysis_results(found_patterns, total_score)
-                else:
-                    st.info("👀 특별한 위험 패턴이 발견되지 않았습니다.")
+        if analysis_type == "텍스트 직접 입력":
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                input_text = st.text_area(
+                    "분석할 문장을 입력하세요:",
+                    placeholder="분석하고 싶은 문장을 입력해주세요...",
+                    height=100
+                )
+            with col2:
+                st.write("")
+                st.write("")
+                analyze_button = st.button("🔍 위험도 분석", use_container_width=True, key="analyze")
+            
+            if analyze_button and input_text:
+                with st.spinner('🔄 문장을 분석하고 있습니다...'):
+                    found_patterns = find_matching_patterns(input_text, data)
+                    if found_patterns:
+                        total_score = calculate_danger_score(found_patterns)
+                        st.success(f"🎯 분석이 완료되었습니다! {len(found_patterns)}개의 패턴이 발견되었습니다.")
+                        display_analysis_results(found_patterns, total_score)
+                    else:
+                        st.info("👀 특별한 위험 패턴이 발견되지 않았습니다.")
+        
+        else:  # 파일 업로드
+            uploaded_file = st.file_uploader("CSV 또는 Excel 파일 업로드", type=['csv', 'xlsx', 'xls'])
+            
+            if uploaded_file is not None:
+                if st.button("📂 파일 분석", use_container_width=True):
+                    with st.spinner('🔄 파일을 분석하고 있습니다...'):
+                        analysis_results = analyze_file_contents(uploaded_file, data)
+                        if analysis_results and analysis_results['total_patterns'] > 0:
+                            st.success(f"🎯 분석이 완료되었습니다! 총 {analysis_results['total_patterns']}개의 패턴이 발견되었습니다.")
+                            display_file_analysis_results(analysis_results)
+                        elif analysis_results:
+                            st.info("👀 파일에서 위험 패턴이 발견되지 않았습니다.")
 
     with tab2:
         st.markdown("""
