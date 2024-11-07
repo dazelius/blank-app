@@ -374,38 +374,46 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         
-        # 데이터프레임 생성 및 표시
+        # 데이터프레임 생성 및 표시 부분 수정
         if data:
             import pandas as pd
             df = pd.DataFrame(data)
             
-            # 컬럼명 변경
+            # 실제 데이터의 컬럼명 확인
+            print("Available columns:", df.columns.tolist())  # 디버깅용
+            
+            # 컬럼명 변경 (실제 스프레드시트의 컬럼명에 맞게 수정)
             column_mapping = {
                 'text': '패턴',
                 'output': '분석',
                 'url': '참고 URL',
-                'danger_level': '위험도',
+                'dangerlevel': '위험도',  # 스프레드시트의 실제 컬럼명에 맞춰 수정
                 'timestamp': '등록일시'
             }
-            df = df.rename(columns=column_mapping)
             
-            # 데이터프레임 정렬 (최신 등록순)
-            if 'timestamp' in data[0].keys():
-                df = df.sort_values(by='등록일시', ascending=False)
+            # 존재하는 컬럼만 이름 변경
+            for old_col, new_col in column_mapping.items():
+                if old_col in df.columns:
+                    df = df.rename(columns={old_col: new_col})
             
             # 검색/필터링 기능 추가
             search_term = st.text_input("🔍 패턴 검색:", placeholder="검색어를 입력하세요...")
             if search_term:
-                df = df[df['패턴'].str.contains(search_term, case=False, na=False) | 
-                    df['분석'].str.contains(search_term, case=False, na=False)]
+                pattern_mask = df['패턴'].astype(str).str.contains(search_term, case=False, na=False)
+                analysis_mask = df['분석'].astype(str).str.contains(search_term, case=False, na=False)
+                df = df[pattern_mask | analysis_mask]
             
-            # 위험도 필터링
-            col1, col2 = st.columns(2)
-            with col1:
-                min_danger = st.number_input("최소 위험도:", min_value=0, max_value=100, value=0)
-            with col2:
-                max_danger = st.number_input("최대 위험도:", min_value=0, max_value=100, value=100)
-            df = df[(df['위험도'] >= min_danger) & (df['위험도'] <= max_danger)]
+            # 위험도 필터링 (위험도 컬럼이 있는 경우에만)
+            if '위험도' in df.columns:
+                col1, col2 = st.columns(2)
+                with col1:
+                    min_danger = st.number_input("최소 위험도:", min_value=0, max_value=100, value=0)
+                with col2:
+                    max_danger = st.number_input("최대 위험도:", min_value=0, max_value=100, value=100)
+                
+                # 위험도 컬럼을 숫자형으로 변환
+                df['위험도'] = pd.to_numeric(df['위험도'], errors='coerce')
+                df = df[(df['위험도'] >= min_danger) & (df['위험도'] <= max_danger)]
             
             # 테이블 표시
             st.dataframe(
@@ -415,14 +423,15 @@ def main():
                 height=400
             )
             
-            # 통계 정보 표시
+            # 통계 정보 표시 (위험도 컬럼이 있는 경우에만)
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("총 패턴 수", len(df))
-            with col2:
-                st.metric("평균 위험도", f"{df['위험도'].mean():.1f}")
-            with col3:
-                st.metric("고위험 패턴 수", len(df[df['위험도'] >= 70]))
+            if '위험도' in df.columns:
+                with col2:
+                    st.metric("평균 위험도", f"{df['위험도'].mean():.1f}")
+                with col3:
+                    st.metric("고위험 패턴 수", len(df[df['위험도'] >= 70]))
         else:
             st.info("등록된 패턴이 없습니다.")
 
