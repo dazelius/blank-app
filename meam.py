@@ -366,193 +366,111 @@ def find_matching_patterns(input_text, data, threshold=0.7):  # threshold를 0.7
     
     return found_patterns
 
-def display_file_analysis_results(analysis_results):
-    """파일 분석 결과 표시 - 개선된 형식"""
-    if not analysis_results or not analysis_results['results']:
-        return
-
-    # 기본 스타일 정의
-    st.markdown("""
-        <style>
-        .file-analysis {
-            margin-bottom: 20px;
-        }
-        
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 15px;
-            margin-bottom: 25px;
-        }
-        
-        .stat-card {
-            background: #2D2D2D;
-            padding: 15px;
-            border-radius: 8px;
-            text-align: center;
-        }
-        
-        .stat-label {
-            color: #888;
-            font-size: 0.9em;
-            margin-bottom: 5px;
-        }
-        
-        .stat-value {
-            font-size: 1.5em;
-            font-weight: bold;
-        }
-        
-        .result-item {
-            background: #2D2D2D;
-            border-radius: 8px;
-            margin-bottom: 15px;
-            overflow: hidden;
-        }
-        
-        .result-header {
-            padding: 15px;
-            border-bottom: 1px solid #3D3D3D;
-        }
-        
-        .header-title {
-            font-size: 1.1em;
-            color: #E0E0E0;
-            margin-bottom: 10px;
-        }
-        
-        .header-info {
-            display: flex;
-            gap: 15px;
-            color: #888;
-            font-size: 0.9em;
-        }
-        
-        .detected-words {
-            background: #3D3D3D;
-            padding: 4px 8px;
-            border-radius: 4px;
-            display: inline-block;
-        }
-        
-        .match-rate {
-            padding: 4px 8px;
-            border-radius: 4px;
-        }
-        
-        .match-100 {
-            background-color: rgba(255, 165, 0, 0.1);
-            color: #FFA500;
-            border-left: 4px solid #FFA500;
-        }
-        
-        .content-text {
-            padding: 15px;
-            background: #3D3D3D;
-            margin: 15px;
-            border-radius: 8px;
-            line-height: 1.6;
-        }
-        
-        .highlight {
-            background: linear-gradient(104deg, 
-                rgba(255, 178, 15, 0.1) 0.9%, 
-                rgba(255, 178, 15, 0.3) 2.4%, 
-                rgba(255, 178, 15, 0.2) 5.8%, 
-                rgba(255, 178, 15, 0.1) 93%);
-            border-radius: 4px;
-            padding: 0.1em 0.2em;
-            color: #FFB20F;
-            font-weight: 500;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-
-    # 통계 계산
-    total_score = sum(result['score'] for result in analysis_results['results'])
-    avg_score = total_score / len(analysis_results['results']) if analysis_results['results'] else 0
-
-    # 통계 표시
+def display_analysis_results(patterns, total_score):
+    """분석 결과 표시 - 하이라이트 기능 추가"""
+    danger_level_class = get_danger_level_class(total_score)
     st.markdown(f"""
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-label">보안 문제 발견</div>
-                <div class="stat-value" style="color: #FFB20F">
-                    {analysis_results['total_patterns']}
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">평균 위험도</div>
-                <div class="stat-value" style="{get_color_style(avg_score)}">
-                    {avg_score:.1f}
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">총 위험도</div>
-                <div class="stat-value" style="{get_color_style(total_score)}">
-                    {total_score}
-                </div>
-            </div>
+        <div class="danger-meter">
+            <h2>전체 위험도 점수</h2>
+            <div class="danger-score {danger_level_class}">{total_score}</div>
         </div>
     """, unsafe_allow_html=True)
 
-    # 결과를 위험도 순으로 정렬
-    sorted_results = sorted(analysis_results['results'], key=lambda x: x['score'], reverse=True)
-    
-    for idx, result in enumerate(sorted_results, 1):
-        detected_words = []
-        max_match_percentage = 0
+    for pattern in patterns:
+        danger_level_class = get_danger_level_class(pattern['danger_level'])
+        thumbnail_html = ""
+        if 'thumbnail' in pattern:
+            thumbnail_html = f'<img src="{pattern["thumbnail"]}" style="width:100%; max-width:480px; border-radius:10px; margin-top:10px;">'
         
-        for pattern in result['patterns']:
-            pattern_words = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern['pattern'].lower()).split()
-            detected_words.extend(pattern_words)
-            current_match = pattern.get('match_score', 0) * 100
-            max_match_percentage = max(max_match_percentage, current_match)
+        # 원본 텍스트에서 패턴 하이라이트
+        highlighted_text = highlight_pattern_in_text(pattern['original_text'], pattern['pattern'])
         
-        detected_words = sorted(list(set(detected_words)))
-        is_perfect_match = max_match_percentage >= 99.9
-        match_class = "match-100" if is_perfect_match else ""
+        # 매치 점수를 퍼센트로 표시
+        match_percentage = int(pattern['match_score'] * 100)
         
-        with st.expander(
-            f"발견된 문제 #{idx} (컬럼: {result['column']}, 위험도: {result['score']})",
-            expanded=result['score'] >= 70
-        ):
-            st.markdown(f"""
-                <div class="result-item {match_class}">
-                    <div class="result-header">
-                        <div class="header-info">
-                            <span>검출 단어: <span class="detected-words">[{', '.join(detected_words)}]</span></span>
-                            <span>일치율: <span class="match-rate">{max_match_percentage:.1f}%</span></span>
-                        </div>
-                    </div>
-                    <div class="content-text">
-                        {highlight_pattern_in_text(result['text'], detected_words)}
-                    </div>
+        st.markdown(f"""
+            <div class="analysis-card">
+                <h3>🔍 발견된 패턴:</h3>
+                <div class="highlighted-text" style="
+                    background-color: #2A2A2A;
+                    padding: 15px;
+                    border-radius: 8px;
+                    margin: 10px 0;
+                    line-height: 1.6;
+                    font-family: 'Noto Sans KR', sans-serif;">
+                    {highlighted_text}
                 </div>
-            """, unsafe_allow_html=True)
-            
-            for pattern in result['patterns']:
-                danger_style = get_color_style(pattern['danger_level'])
-                match_percentage = pattern.get('match_score', 0) * 100
-                
-                st.markdown(f"""
-                    <div class="analysis-card" style="border-left: 4px solid {danger_style.split(':')[1].split(';')[0].strip()};">
-                        <h3>🔍 패턴 일치: {pattern['pattern']}</h3>
-                        <p>📊 위험도: <span style="{danger_style}">{pattern['danger_level']}</span></p>
-                        <p>🎯 일치율: {match_percentage:.1f}%</p>
-                        <p>📝 분석: {pattern['analysis']}</p>
-                        {f'<p>🔗 <a href="{pattern["url"]}" target="_blank">참고 자료</a></p>' if pattern.get("url") else ''}
-                    </div>
-                """, unsafe_allow_html=True)
+                <p>📊 위험도: <span class="{danger_level_class}">{pattern['danger_level']}</span></p>
+                <p>🎯 일치율: {match_percentage}%</p>
+                <p>📝 분석: {pattern['analysis']}</p>
+                {f'<p>🔗 <a href="{pattern["url"]}" target="_blank">참고 자료</a></p>' if pattern['url'] else ''}
+                {thumbnail_html}
+            </div>
+        """, unsafe_allow_html=True)
 
-def highlight_pattern_in_text(text, words):
-    """텍스트 내의 패턴을 하이라이트 처리"""
-    result_text = text
-    for word in words:
-        if len(word) >= 2:
-            pattern = re.compile(f'({re.escape(word)})', re.IGNORECASE)
-            result_text = pattern.sub(r'<span class="highlight">\1</span>', result_text)
-    return result_text
+def highlight_pattern_in_text(original_text, pattern):
+    """텍스트 내의 패턴을 하이라이트"""
+    # 패턴과 원본 텍스트를 정규화
+    pattern_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern.lower())
+    text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', original_text.lower())
+    
+    # CSS 스타일이 적용된 하이라이트 HTML
+    highlight_style = """
+        background: linear-gradient(104deg, rgba(255, 178, 15, 0.1) 0.9%, rgba(255, 178, 15, 0.3) 2.4%, rgba(255, 178, 15, 0.2) 5.8%, rgba(255, 178, 15, 0.1) 93%, rgba(255, 178, 15, 0.1) 96%);
+        border-radius: 4px;
+        padding: 0.1em 0.2em;
+        box-decoration-break: clone;
+        -webkit-box-decoration-break: clone;
+        position: relative;
+        color: #FFB20F;
+        font-weight: 500;
+    """
+    
+    try:
+        # 패턴의 각 단어에 대해 하이라이트 처리
+        pattern_words = pattern_cleaned.split()
+        result_text = original_text
+        
+        for word in pattern_words:
+            if len(word) >= 2:  # 2글자 이상의 단어만 처리
+                # 대소문자 구분 없이 매칭하되, 원본 텍스트의 대소문자는 유지
+                pattern = re.compile(re.escape(word), re.IGNORECASE)
+                result_text = pattern.sub(
+                    lambda m: f'<span style="{highlight_style}">{m.group()}</span>',
+                    result_text
+                )
+        
+        return result_text
+    except Exception as e:
+        st.error(f"하이라이트 처리 중 오류 발생: {str(e)}")
+        return original_text
+
+# CSS 스타일 추가
+st.markdown("""
+<style>
+    /* 하이라이트 관련 스타일 */
+    .highlighted-text {
+        font-size: 1.1em;
+        line-height: 1.6;
+    }
+    
+    /* 기존 스타일에 추가 */
+    .analysis-card {
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .analysis-card::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        height: 100%;
+        width: 4px;
+        background: linear-gradient(to bottom, #FFB20F, #FF9800);
+    }
+</style>
+""", unsafe_allow_html=True)
 
 def analyze_file_contents(file_content, data):
     """파일 내용 분석"""
@@ -625,164 +543,133 @@ def display_file_analysis_results(analysis_results):
         </div>
         
         <style>
-        .result-header {
-            background: #2D2D2D;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 15px;
-            border-left: 4px solid;
+        .text-header {
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            font-family: 'Noto Sans KR', sans-serif;
         }
         
-        .result-header.match-100 {
-            background-color: rgba(255, 165, 0, 0.1);
-            border-left-color: #FFA500;
+        .perfect-match {
+            background-color: rgba(255, 165, 0, 0.2);
+            border-left: 4px solid #FFA500;
         }
         
-        .result-header.match-partial {
-            border-left-color: #4A4A4A;
+        .partial-match {
+            background-color: #2D2D2D;
+            border-left: 4px solid #4A4A4A;
         }
         
-        .header-main {
-            font-size: 1.1em;
-            color: #E0E0E0;
-            margin-bottom: 8px;
-        }
-        
-        .header-info {
-            font-size: 0.9em;
+        .match-info {
             color: #888;
-            margin: 4px 0;
+            font-size: 0.9em;
         }
         
-        .match-rate {
-            display: inline-block;
-            padding: 2px 6px;
-            border-radius: 4px;
-        }
-        
-        .match-rate.rate-100 {
+        .match-100 {
             color: #FFA500;
             font-weight: bold;
         }
-        
-        .detected-words {
-            background: #3D3D3D;
-            padding: 4px 8px;
-            border-radius: 4px;
-            display: inline-block;
-            margin: 2px 0;
-        }
-        
-        .stats-container {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 20px;
-        }
-        
-        .stat-card {
-            background: #2D2D2D;
-            padding: 15px;
-            border-radius: 8px;
-            text-align: center;
-            flex: 1;
-            margin: 0 10px;
-        }
         </style>
-    """, unsafe_allow_html=True)
-    
-    # 통계 표시
-    total_score = sum(result['score'] for result in analysis_results['results'])
-    avg_score = total_score / len(analysis_results['results']) if analysis_results['results'] else 0
-    
-    # 통계 카드 표시
-    st.markdown(f"""
-        <div class="stats-container">
-            <div class="stat-card">
-                <div style="font-size: 0.9em; color: #888;">분석된 패턴 수</div>
-                <div style="font-size: 1.5em; margin: 5px 0; {get_color_style(0)}">
-                    {analysis_results['total_patterns']}
-                </div>
-            </div>
-            <div class="stat-card">
-                <div style="font-size: 0.9em; color: #888;">평균 위험도</div>
-                <div style="font-size: 1.5em; margin: 5px 0; {get_color_style(avg_score)}">
-                    {avg_score:.1f}
-                </div>
-            </div>
-            <div class="stat-card">
-                <div style="font-size: 0.9em; color: #888;">총 위험도</div>
-                <div style="font-size: 1.5em; margin: 5px 0; {get_color_style(total_score)}">
-                    {total_score}
-                </div>
-            </div>
-        </div>
     """, unsafe_allow_html=True)
     
     # 결과를 위험도 순으로 정렬
     sorted_results = sorted(analysis_results['results'], key=lambda x: x['score'], reverse=True)
     
     for result in sorted_results:
-        # 검출된 단어 목록 생성 및 일치율 계산
+        # 검출된 단어 목록 생성
         detected_words = []
-        max_match_percentage = 0
+        match_percentage = 0
         
         for pattern in result['patterns']:
             pattern_words = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern['pattern'].lower()).split()
             detected_words.extend(pattern_words)
-            current_match = pattern.get('match_score', 0) * 100
-            max_match_percentage = max(max_match_percentage, current_match)
+            match_percentage = max(match_percentage, pattern.get('match_score', 0) * 100)
         
         # 중복 제거 및 정렬
         detected_words = sorted(list(set(detected_words)))
         
         # 일치율에 따른 스타일 선택
-        is_perfect_match = max_match_percentage >= 99.9
-        match_class = "match-100" if is_perfect_match else "match-partial"
-        rate_class = "rate-100" if is_perfect_match else ""
+        is_perfect_match = match_percentage >= 99.9  # 반올림 오차를 고려하여 99.9% 이상을 100%로 취급
+        style_class = "perfect-match" if is_perfect_match else "partial-match"
+        match_class = "match-100" if is_perfect_match else ""
         
-        header_html = f"""
-            <div class="result-header {match_class}">
-                <div class="header-main">
-                    검출된 텍스트 (컬럼: {result['column']}, 위험도: {result['score']})
+        st.markdown(f"""
+            <div class="text-header {style_class}">
+                <div>검출된 텍스트 (컬럼: {result['column']}, 위험도: {result['score']})</div>
+                <div class="match-info">
+                    검출 단어: [{', '.join(detected_words)}]
                 </div>
-                <div class="header-info">
-                    검출 단어: <span class="detected-words">[{', '.join(detected_words)}]</span>
+                <div class="match-info">
+                    일치율: <span class="{match_class}">{match_percentage:.1f}%</span>
                 </div>
-                <div class="header-info">
-                    일치율: <span class="match-rate {rate_class}">{max_match_percentage:.1f}%</span>
+                <div style="margin-top: 5px;">
+                    {result['text']}
                 </div>
             </div>
-        """
+        """, unsafe_allow_html=True)
         
-        # 위험도에 따른 확장 여부 설정
-        is_high_risk = result['score'] >= 70
-        with st.expander(header_html, expanded=is_high_risk):
-            # 원본 텍스트 표시 (하이라이트 적용)
-            highlighted_text = highlight_pattern_in_text(result['text'], detected_words)
-            
-            st.markdown(f"""
-                <div style="padding: 15px; background: #3D3D3D; border-radius: 8px; margin: 10px 0; line-height: 1.6;">
-                    {highlighted_text}
-                </div>
-            """, unsafe_allow_html=True)
-            
-            # 개별 패턴 상세 정보 표시
+        # 패턴 상세 정보는 expander로 표시
+        with st.expander("상세 정보 보기"):
             for pattern in result['patterns']:
-                danger_style = get_color_style(pattern['danger_level'])
-                match_percentage = pattern.get('match_score', 0) * 100
-                
+                match_score = pattern.get('match_score', 0) * 100
                 st.markdown(f"""
-                    <div class="analysis-card" style="border-left: 4px solid {danger_style.split(':')[1].split(';')[0].strip()};">
-                        <h3>🔍 발견된 패턴: {pattern['pattern']}</h3>
-                        <p>📊 위험도: <span style="{danger_style}">{pattern['danger_level']}</span></p>
-                        <p>🎯 일치율: {match_percentage:.1f}%</p>
+                    <div style="padding: 10px; background-color: #3D3D3D; border-radius: 5px; margin: 5px 0;">
+                        <p>🔍 패턴: {pattern['pattern']}</p>
+                        <p>📊 위험도: {pattern['danger_level']}</p>
                         <p>📝 분석: {pattern['analysis']}</p>
-                        {f'<p>🔗 <a href="{pattern["url"]}" target="_blank">참고 자료</a></p>' if pattern.get("url") else ''}
+                        <p>🎯 일치율: {match_score:.1f}%</p>
                     </div>
                 """, unsafe_allow_html=True)
 
-def highlight_pattern_in_text(text, pattern_words):
-    """텍스트 내의 패턴을 하이라이트"""
+    # CSS 스타일 추가
+    st.markdown("""
+    <style>
+        .expander-content {
+            background-color: #2D2D2D;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 5px;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # 위험도에 따른 색상 정의
+    def get_color_style(score):
+        if score >= 70:
+            return "color: #FF5252; font-weight: bold;"  # 빨간색
+        elif score >= 30:
+            return "color: #FFD700; font-weight: bold;"  # 노란색
+        else:
+            return "color: #00E676; font-weight: bold;"  # 초록색
+    
+    # 통계 표시
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown(f"""
+            <div style="text-align: center; padding: 10px; background-color: #2D2D2D; border-radius: 10px;">
+                <div style="font-size: 1.2em;">분석된 패턴 수</div>
+                <div style="font-size: 2em; {get_color_style(0)}">{analysis_results['total_patterns']}</div>
+            </div>
+        """, unsafe_allow_html=True)
+    with col2:
+        st.markdown(f"""
+            <div style="text-align: center; padding: 10px; background-color: #2D2D2D; border-radius: 10px;">
+                <div style="font-size: 1.2em;">평균 위험도</div>
+                <div style="font-size: 2em; {get_color_style(avg_score)}">{avg_score:.1f}</div>
+            </div>
+        """, unsafe_allow_html=True)
+    with col3:
+        st.markdown(f"""
+            <div style="text-align: center; padding: 10px; background-color: #2D2D2D; border-radius: 10px;">
+                <div style="font-size: 1.2em;">총 위험도</div>
+                <div style="font-size: 2em; {get_color_style(total_score)}">{total_score}</div>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    # 결과를 위험도 순으로 정렬
+    sorted_results = sorted(analysis_results['results'], key=lambda x: x['score'], reverse=True)
+    
+    # 하이라이트 스타일 정의
     highlight_style = """
         background: linear-gradient(104deg, rgba(255, 178, 15, 0.1) 0.9%, rgba(255, 178, 15, 0.3) 2.4%, rgba(255, 178, 15, 0.2) 5.8%, rgba(255, 178, 15, 0.1) 93%, rgba(255, 178, 15, 0.1) 96%);
         border-radius: 4px;
@@ -794,16 +681,64 @@ def highlight_pattern_in_text(text, pattern_words):
         font-weight: 500;
     """
     
-    result_text = text
-    for word in pattern_words:
-        if len(word) >= 2:  # 2글자 이상의 단어만 처리
-            pattern = re.compile(f'({re.escape(word)})', re.IGNORECASE)
-            result_text = pattern.sub(
-                lambda m: f'<span style="{highlight_style}">{m.group()}</span>',
-                result_text
-            )
-    
-    return result_text
+    # 상세 결과 표시
+    for result in sorted_results:
+        # 원본 텍스트에 모든 패턴의 하이라이트 적용
+        highlighted_text = result['text']
+        for pattern in result['patterns']:
+            pattern_text = pattern['pattern']
+            pattern_words = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text.lower()).split()
+            
+            for word in pattern_words:
+                if len(word) >= 2:  # 2글자 이상의 단어만 처리
+                    pattern_regex = re.compile(f'({re.escape(word)})', re.IGNORECASE)
+                    highlighted_text = pattern_regex.sub(
+                        fr'<span style="{highlight_style}">\1</span>',
+                        highlighted_text
+                    )
+        
+        # 위험도에 따른 확장 여부 설정
+        is_high_risk = result['score'] >= 70
+        with st.expander(
+            f"🔍 검출된 텍스트 (컬럼: {result['column']}, 위험도: {result['score']})",
+            expanded=is_high_risk
+        ):
+            # 원본 텍스트와 하이라이트된 버전 표시
+            st.markdown(f"""
+                <div style="padding: 15px; background-color: #2D2D2D; border-radius: 10px; margin-bottom: 10px;">
+                    <div style="font-weight: bold;">원본 텍스트 (하이라이트 표시):</div>
+                    <div style="padding: 10px; background-color: #3D3D3D; border-radius: 5px; margin-top: 5px; line-height: 1.6;">
+                        {highlighted_text}
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <span style="font-weight: bold;">검출된 컬럼:</span> {result['column']}
+                    </div>
+                    <div style="margin-top: 5px;">
+                        <span style="font-weight: bold;">위험도 점수:</span> 
+                        <span style="{get_color_style(result['score'])}">{result['score']}</span>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # 개별 패턴 분석 결과 표시
+            for pattern in result['patterns']:
+                danger_style = get_color_style(pattern['danger_level'])
+                thumbnail_html = ""
+                if 'thumbnail' in pattern:
+                    thumbnail_html = f'<img src="{pattern["thumbnail"]}" style="width:100%; max-width:480px; border-radius:10px; margin-top:10px;">'
+                
+                match_percentage = int(pattern.get('match_score', 0) * 100)
+                
+                st.markdown(f"""
+                    <div class="analysis-card" style="border-left: 4px solid {danger_style.split(':')[1].split(';')[0].strip()};">
+                        <h3>🔍 발견된 패턴: {pattern['pattern']}</h3>
+                        <p>📊 위험도: <span style="{danger_style}">{pattern['danger_level']}</span></p>
+                        <p>🎯 일치율: {match_percentage}%</p>
+                        <p>📝 분석: {pattern['analysis']}</p>
+                        {f'<p>🔗 <a href="{pattern["url"]}" target="_blank">참고 자료</a></p>' if pattern["url"] else ''}
+                        {thumbnail_html}
+                    </div>
+                """, unsafe_allow_html=True)
 
 # 추가 CSS 스타일
 st.markdown("""
