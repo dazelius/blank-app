@@ -265,7 +265,7 @@ def get_youtube_thumbnail(url):
         return f"https://img.youtube.com/vi/{video_id.group(1)}/hqdefault.jpg"
     return None
 
-def find_matching_patterns(input_text, data, threshold=0.6):
+def find_matching_patterns(input_text, data, threshold=0.8):  # threshold 값을 0.6에서 0.8로 상향
     """입력 텍스트와 일치하는 패턴 찾기"""
     if not input_text.strip():
         return []
@@ -279,23 +279,35 @@ def find_matching_patterns(input_text, data, threshold=0.6):
         pattern_text = record.get('text', '').lower()
         pattern_text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text)
         
-        # 단어 매칭
-        if any(word in pattern_text_cleaned for word in input_words):
+        # 정확한 구문 매칭 (전체 문장 비교)
+        if difflib.SequenceMatcher(None, input_text_cleaned, pattern_text_cleaned).ratio() >= threshold:
             matched_patterns.add(idx)
             continue
-        
-        # 유사도 매칭
+            
+        # 단어 단위 매칭
         pattern_words = pattern_text_cleaned.split()
-        for input_word in input_words:
-            for pattern_word in pattern_words:
-                if len(input_word) > 1 and (input_word in pattern_word or pattern_word in input_word):
-                    matched_patterns.add(idx)
-                    break
-                if len(input_word) > 1:
-                    score = difflib.SequenceMatcher(None, input_word, pattern_word).ratio()
-                    if score >= threshold:
-                        matched_patterns.add(idx)
-                        break
+        matched_words = 0
+        total_unique_words = len(set(pattern_words))
+        
+        for pattern_word in pattern_words:
+            # 단어 길이가 2글자 이상인 경우에만 매칭 시도
+            if len(pattern_word) >= 2:
+                for input_word in input_words:
+                    if len(input_word) >= 2:
+                        # 정확한 단어 매칭
+                        if input_word == pattern_word:
+                            matched_words += 1
+                            break
+                        # 유사도 기반 매칭 (단어 길이가 비슷한 경우에만)
+                        elif abs(len(input_word) - len(pattern_word)) <= 2:
+                            similarity = difflib.SequenceMatcher(None, input_word, pattern_word).ratio()
+                            if similarity >= threshold:
+                                matched_words += 1
+                                break
+        
+        # 일정 비율 이상의 단어가 매칭되는 경우에만 패턴으로 인정
+        if total_unique_words > 0 and (matched_words / total_unique_words) >= 0.7:  # 70% 이상 일치해야 함
+            matched_patterns.add(idx)
     
     for idx in matched_patterns:
         record = data[idx]
@@ -304,13 +316,18 @@ def find_matching_patterns(input_text, data, threshold=0.6):
             'analysis': record['output'],
             'danger_level': int(record.get('dangerlevel', 0)),
             'url': record.get('url', ''),
-            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'match_score': difflib.SequenceMatcher(None, input_text_cleaned, 
+                                                 re.sub(r'[^가-힣a-zA-Z0-9\s]', '', record['text'].lower())).ratio()
         }
         # 썸네일 추가
         thumbnail = get_youtube_thumbnail(pattern_info['url'])
         if thumbnail:
             pattern_info['thumbnail'] = thumbnail
         found_patterns.append(pattern_info)
+    
+    # 매치 점수로 정렬
+    found_patterns.sort(key=lambda x: x['match_score'], reverse=True)
     
     return found_patterns
 
@@ -330,10 +347,14 @@ def display_analysis_results(patterns, total_score):
         if 'thumbnail' in pattern:
             thumbnail_html = f'<img src="{pattern["thumbnail"]}" style="width:100%; max-width:480px; border-radius:10px; margin-top:10px;">'
         
+        # 매치 점수를 퍼센트로 표시
+        match_percentage = int(pattern['match_score'] * 100)
+        
         st.markdown(f"""
             <div class="analysis-card">
                 <h3>🔍 발견된 패턴: {pattern['pattern']}</h3>
                 <p>📊 위험도: <span class="{danger_level_class}">{pattern['danger_level']}</span></p>
+                <p>🎯 일치율: {match_percentage}%</p>
                 <p>📝 분석: {pattern['analysis']}</p>
                 {f'<p>🔗 <a href="{pattern["url"]}" target="_blank">참고 자료</a></p>' if pattern['url'] else ''}
                 {thumbnail_html}
