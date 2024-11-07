@@ -505,9 +505,9 @@ def display_file_analysis_results(analysis_results):
 
 
 def main():
-    st.markdown('<h1 class="main-title">⚠️위험 수위 발언 분석⚠️</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-title">⚠️스트링 테이블 분석⚠️</h1>', unsafe_allow_html=True)
     st.markdown("""
-    > 💡 입력된 문장의 위험도를 분석하고 점수화하여 보여드립니다.
+    > 💡 입력된 문장을 분석하고 점수화하여 보여드립니다.
     """)
 
     # 데이터 로드
