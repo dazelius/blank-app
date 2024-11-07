@@ -543,64 +543,98 @@ def display_file_analysis_results(analysis_results):
         </div>
         
         <style>
-        .text-result-header {
-            background-color: #2D2D2D;
-            padding: 12px 15px;
+        .result-header {
+            background: #2D2D2D;
+            padding: 15px;
             border-radius: 8px;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
             border-left: 4px solid;
         }
         
-        .match-100 {
-            background-color: rgba(255, 165, 0, 0.2);
+        .result-header.match-100 {
+            background-color: rgba(255, 165, 0, 0.1);
             border-left-color: #FFA500;
         }
         
-        .match-partial {
+        .result-header.match-partial {
             border-left-color: #4A4A4A;
         }
         
-        .text-result-content {
-            margin: 5px 0;
+        .header-main {
+            font-size: 1.1em;
             color: #E0E0E0;
+            margin-bottom: 8px;
         }
         
-        .text-result-info {
+        .header-info {
             font-size: 0.9em;
             color: #888;
-            margin: 3px 0;
+            margin: 4px 0;
         }
         
-        .match-rate-100 {
+        .match-rate {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        
+        .match-rate.rate-100 {
             color: #FFA500;
             font-weight: bold;
         }
         
-        .match-rate-partial {
-            color: #888;
-        }
-        
         .detected-words {
-            background-color: #3D3D3D;
+            background: #3D3D3D;
             padding: 4px 8px;
             border-radius: 4px;
             display: inline-block;
             margin: 2px 0;
         }
+        
+        .stats-container {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: #2D2D2D;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            flex: 1;
+            margin: 0 10px;
+        }
         </style>
     """, unsafe_allow_html=True)
     
-    # 통계 표시 
+    # 통계 표시
     total_score = sum(result['score'] for result in analysis_results['results'])
     avg_score = total_score / len(analysis_results['results']) if analysis_results['results'] else 0
     
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("분석된 패턴 수", analysis_results['total_patterns'])
-    with col2:
-        st.metric("평균 위험도", f"{avg_score:.1f}")
-    with col3:
-        st.metric("총 위험도", total_score)
+    # 통계 카드 표시
+    st.markdown(f"""
+        <div class="stats-container">
+            <div class="stat-card">
+                <div style="font-size: 0.9em; color: #888;">분석된 패턴 수</div>
+                <div style="font-size: 1.5em; margin: 5px 0; {get_color_style(0)}">
+                    {analysis_results['total_patterns']}
+                </div>
+            </div>
+            <div class="stat-card">
+                <div style="font-size: 0.9em; color: #888;">평균 위험도</div>
+                <div style="font-size: 1.5em; margin: 5px 0; {get_color_style(avg_score)}">
+                    {avg_score:.1f}
+                </div>
+            </div>
+            <div class="stat-card">
+                <div style="font-size: 0.9em; color: #888;">총 위험도</div>
+                <div style="font-size: 1.5em; margin: 5px 0; {get_color_style(total_score)}">
+                    {total_score}
+                </div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
     
     # 결과를 위험도 순으로 정렬
     sorted_results = sorted(analysis_results['results'], key=lambda x: x['score'], reverse=True)
@@ -622,18 +656,18 @@ def display_file_analysis_results(analysis_results):
         # 일치율에 따른 스타일 선택
         is_perfect_match = max_match_percentage >= 99.9
         match_class = "match-100" if is_perfect_match else "match-partial"
-        rate_class = "match-rate-100" if is_perfect_match else "match-rate-partial"
+        rate_class = "rate-100" if is_perfect_match else ""
         
         header_html = f"""
-            <div class="text-result-header {match_class}">
-                <div class="text-result-content">
+            <div class="result-header {match_class}">
+                <div class="header-main">
                     검출된 텍스트 (컬럼: {result['column']}, 위험도: {result['score']})
                 </div>
-                <div class="text-result-info">
-                    <div class="detected-words">검출 단어: [{', '.join(detected_words)}]</div>
+                <div class="header-info">
+                    검출 단어: <span class="detected-words">[{', '.join(detected_words)}]</span>
                 </div>
-                <div class="text-result-info">
-                    일치율: <span class="{rate_class}">{max_match_percentage:.1f}%</span>
+                <div class="header-info">
+                    일치율: <span class="match-rate {rate_class}">{max_match_percentage:.1f}%</span>
                 </div>
             </div>
         """
@@ -645,7 +679,7 @@ def display_file_analysis_results(analysis_results):
             highlighted_text = highlight_pattern_in_text(result['text'], detected_words)
             
             st.markdown(f"""
-                <div style="padding: 10px; background-color: #3D3D3D; border-radius: 5px; margin: 10px 0; line-height: 1.6;">
+                <div style="padding: 15px; background: #3D3D3D; border-radius: 8px; margin: 10px 0; line-height: 1.6;">
                     {highlighted_text}
                 </div>
             """, unsafe_allow_html=True)
