@@ -240,6 +240,17 @@ def get_sheet_instance():
         return None
 
 
+# 최상위 레벨에 get_color_style 함수 정의
+def get_color_style(score):
+    """위험도 점수에 따른 색상 스타일 반환"""
+    if score >= 70:
+        return "color: #FF5252; font-weight: bold;"  # 빨간색
+    elif score >= 30:
+        return "color: #FFD700; font-weight: bold;"  # 노란색
+    else:
+        return "color: #00E676; font-weight: bold;"  # 초록색
+
+
 def calculate_danger_score(matches):
     """위험도 점수 계산"""
     total_score = 0
@@ -558,8 +569,64 @@ def display_file_analysis_results(analysis_results):
             color: #FFA500;
             font-weight: bold;
         }
+        
+        .stats-card {
+            background-color: #2D2D2D;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .stats-value {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        
+        .stats-label {
+            font-size: 14px;
+            color: #888;
+        }
         </style>
     """, unsafe_allow_html=True)
+    
+    # 전체 통계 계산
+    total_score = sum(result['score'] for result in analysis_results['results'])
+    avg_score = total_score / len(analysis_results['results']) if analysis_results['results'] else 0
+    
+    # 통계 표시
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown(f"""
+            <div class="stats-card">
+                <div class="stats-label">분석된 패턴 수</div>
+                <div class="stats-value" style="{get_color_style(0)}">
+                    {analysis_results['total_patterns']}
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"""
+            <div class="stats-card">
+                <div class="stats-label">평균 위험도</div>
+                <div class="stats-value" style="{get_color_style(avg_score)}">
+                    {avg_score:.1f}
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown(f"""
+            <div class="stats-card">
+                <div class="stats-label">총 위험도</div>
+                <div class="stats-value" style="{get_color_style(total_score)}">
+                    {total_score}
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
     
     # 결과를 위험도 순으로 정렬
     sorted_results = sorted(analysis_results['results'], key=lambda x: x['score'], reverse=True)
@@ -578,7 +645,7 @@ def display_file_analysis_results(analysis_results):
         detected_words = sorted(list(set(detected_words)))
         
         # 일치율에 따른 스타일 선택
-        is_perfect_match = match_percentage >= 99.9  # 반올림 오차를 고려하여 99.9% 이상을 100%로 취급
+        is_perfect_match = match_percentage >= 99.9  # 반올림 오차를 고려
         style_class = "perfect-match" if is_perfect_match else "partial-match"
         match_class = "match-100" if is_perfect_match else ""
         
@@ -609,27 +676,6 @@ def display_file_analysis_results(analysis_results):
                         <p>🎯 일치율: {match_score:.1f}%</p>
                     </div>
                 """, unsafe_allow_html=True)
-
-    # CSS 스타일 추가
-    st.markdown("""
-    <style>
-        .expander-content {
-            background-color: #2D2D2D;
-            padding: 10px;
-            border-radius: 5px;
-            margin-top: 5px;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    # 위험도에 따른 색상 정의
-    def get_color_style(score):
-        if score >= 70:
-            return "color: #FF5252; font-weight: bold;"  # 빨간색
-        elif score >= 30:
-            return "color: #FFD700; font-weight: bold;"  # 노란색
-        else:
-            return "color: #00E676; font-weight: bold;"  # 초록색
     
     # 통계 표시
     col1, col2, col3 = st.columns(3)
