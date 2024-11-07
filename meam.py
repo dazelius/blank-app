@@ -533,6 +533,7 @@ def analyze_file_contents(file_content, data):
 
 # display_file_analysis_results 함수 개선
 def display_file_analysis_results(analysis_results):
+    """파일 분석 결과 표시 - 개선된 형식"""
     if not analysis_results or not analysis_results['results']:
         return
     
@@ -542,76 +543,66 @@ def display_file_analysis_results(analysis_results):
         </div>
         
         <style>
-        .match-header {
-            font-size: 1.1em;
-            padding: 8px 12px;
-            border-radius: 5px;
-            margin-bottom: 8px;
-            font-family: 'Noto Sans KR', sans-serif;
-            border-left: 4px solid transparent;
+        .text-result-header {
+            background-color: #2D2D2D;
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            border-left: 4px solid;
         }
         
         .match-100 {
             background-color: rgba(255, 165, 0, 0.2);
-            border-left: 4px solid #FFA500;
+            border-left-color: #FFA500;
+        }
+        
+        .match-partial {
+            border-left-color: #4A4A4A;
+        }
+        
+        .text-result-content {
+            margin: 5px 0;
+            color: #E0E0E0;
+        }
+        
+        .text-result-info {
+            font-size: 0.9em;
+            color: #888;
+            margin: 3px 0;
+        }
+        
+        .match-rate-100 {
             color: #FFA500;
             font-weight: bold;
         }
         
-        .match-partial {
-            background-color: #2D2D2D;
-            border-left: 4px solid #4A4A4A;
-            color: #E0E0E0;
+        .match-rate-partial {
+            color: #888;
         }
         
-        .stats-card {
-            background-color: #2D2D2D;
-            padding: 15px;
-            border-radius: 10px;
-            text-align: center;
-            margin-bottom: 20px;
+        .detected-words {
+            background-color: #3D3D3D;
+            padding: 4px 8px;
+            border-radius: 4px;
+            display: inline-block;
+            margin: 2px 0;
         }
         </style>
     """, unsafe_allow_html=True)
     
-    # 전체 통계 계산
+    # 통계 표시 
     total_score = sum(result['score'] for result in analysis_results['results'])
     avg_score = total_score / len(analysis_results['results']) if analysis_results['results'] else 0
-
-    # 통계 표시 (한 번만 표시)
+    
     col1, col2, col3 = st.columns(3)
-    
     with col1:
-        st.markdown(f"""
-            <div class="stats-card">
-                <div class="stats-label">분석된 패턴 수</div>
-                <div class="stats-value" style="{get_color_style(0)}">
-                    {analysis_results['total_patterns']}
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-    
+        st.metric("분석된 패턴 수", analysis_results['total_patterns'])
     with col2:
-        st.markdown(f"""
-            <div class="stats-card">
-                <div class="stats-label">평균 위험도</div>
-                <div class="stats-value" style="{get_color_style(avg_score)}">
-                    {avg_score:.1f}
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-    
+        st.metric("평균 위험도", f"{avg_score:.1f}")
     with col3:
-        st.markdown(f"""
-            <div class="stats-card">
-                <div class="stats-label">총 위험도</div>
-                <div class="stats-value" style="{get_color_style(total_score)}">
-                    {total_score}
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
+        st.metric("총 위험도", total_score)
     
-       # 결과를 위험도 순으로 정렬
+    # 결과를 위험도 순으로 정렬
     sorted_results = sorted(analysis_results['results'], key=lambda x: x['score'], reverse=True)
     
     for result in sorted_results:
@@ -629,21 +620,27 @@ def display_file_analysis_results(analysis_results):
         detected_words = sorted(list(set(detected_words)))
         
         # 일치율에 따른 스타일 선택
-        is_perfect_match = max_match_percentage >= 99.9  # 반올림 오차 고려
-        style_class = "match-100" if is_perfect_match else "match-partial"
+        is_perfect_match = max_match_percentage >= 99.9
+        match_class = "match-100" if is_perfect_match else "match-partial"
+        rate_class = "match-rate-100" if is_perfect_match else "match-rate-partial"
         
-        # 검출 텍스트 헤더 생성
-        header_text = f"""
-            <div class="match-header {style_class}">
-                검출된 텍스트 (컬럼: {result['column']}, 위험도: {result['score']})
-                <br>검출 단어: [{', '.join(detected_words)}]
-                <br>일치율: {max_match_percentage:.1f}%
+        header_html = f"""
+            <div class="text-result-header {match_class}">
+                <div class="text-result-content">
+                    검출된 텍스트 (컬럼: {result['column']}, 위험도: {result['score']})
+                </div>
+                <div class="text-result-info">
+                    <div class="detected-words">검출 단어: [{', '.join(detected_words)}]</div>
+                </div>
+                <div class="text-result-info">
+                    일치율: <span class="{rate_class}">{max_match_percentage:.1f}%</span>
+                </div>
             </div>
         """
         
         # 위험도에 따른 확장 여부 설정
         is_high_risk = result['score'] >= 70
-        with st.expander(header_text, expanded=is_high_risk):
+        with st.expander(header_html, expanded=is_high_risk):
             # 원본 텍스트 표시 (하이라이트 적용)
             highlighted_text = highlight_pattern_in_text(result['text'], detected_words)
             
@@ -667,7 +664,7 @@ def display_file_analysis_results(analysis_results):
                         {f'<p>🔗 <a href="{pattern["url"]}" target="_blank">참고 자료</a></p>' if pattern.get("url") else ''}
                     </div>
                 """, unsafe_allow_html=True)
-                
+
 def highlight_pattern_in_text(text, pattern_words):
     """텍스트 내의 패턴을 하이라이트"""
     highlight_style = """
@@ -691,7 +688,6 @@ def highlight_pattern_in_text(text, pattern_words):
             )
     
     return result_text
-
 
 # 추가 CSS 스타일
 st.markdown("""
