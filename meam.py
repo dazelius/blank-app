@@ -522,7 +522,7 @@ def analyze_file_contents(file_content, data):
 
 # display_file_analysis_results 함수 개선
 def display_file_analysis_results(analysis_results):
-    """파일 분석 결과 표시 - 하이라이트 기능 추가"""
+    """파일 분석 결과 표시 - 개선된 형식"""
     if not analysis_results or not analysis_results['results']:
         return
     
@@ -530,11 +530,97 @@ def display_file_analysis_results(analysis_results):
         <div class="database-title">
             📊 파일 분석 결과
         </div>
+        
+        <style>
+        .text-header {
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            font-family: 'Noto Sans KR', sans-serif;
+        }
+        
+        .perfect-match {
+            background-color: rgba(255, 165, 0, 0.2);
+            border-left: 4px solid #FFA500;
+        }
+        
+        .partial-match {
+            background-color: #2D2D2D;
+            border-left: 4px solid #4A4A4A;
+        }
+        
+        .match-info {
+            color: #888;
+            font-size: 0.9em;
+        }
+        
+        .match-100 {
+            color: #FFA500;
+            font-weight: bold;
+        }
+        </style>
     """, unsafe_allow_html=True)
     
-    # 전체 통계 계산
-    total_score = sum(result['score'] for result in analysis_results['results'])
-    avg_score = total_score / len(analysis_results['results'])
+    # 결과를 위험도 순으로 정렬
+    sorted_results = sorted(analysis_results['results'], key=lambda x: x['score'], reverse=True)
+    
+    for result in sorted_results:
+        # 검출된 단어 목록 생성
+        detected_words = []
+        match_percentage = 0
+        
+        for pattern in result['patterns']:
+            pattern_words = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern['pattern'].lower()).split()
+            detected_words.extend(pattern_words)
+            match_percentage = max(match_percentage, pattern.get('match_score', 0) * 100)
+        
+        # 중복 제거 및 정렬
+        detected_words = sorted(list(set(detected_words)))
+        
+        # 일치율에 따른 스타일 선택
+        is_perfect_match = match_percentage >= 99.9  # 반올림 오차를 고려하여 99.9% 이상을 100%로 취급
+        style_class = "perfect-match" if is_perfect_match else "partial-match"
+        match_class = "match-100" if is_perfect_match else ""
+        
+        st.markdown(f"""
+            <div class="text-header {style_class}">
+                <div>검출된 텍스트 (컬럼: {result['column']}, 위험도: {result['score']})</div>
+                <div class="match-info">
+                    검출 단어: [{', '.join(detected_words)}]
+                </div>
+                <div class="match-info">
+                    일치율: <span class="{match_class}">{match_percentage:.1f}%</span>
+                </div>
+                <div style="margin-top: 5px;">
+                    {result['text']}
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        # 패턴 상세 정보는 expander로 표시
+        with st.expander("상세 정보 보기"):
+            for pattern in result['patterns']:
+                match_score = pattern.get('match_score', 0) * 100
+                st.markdown(f"""
+                    <div style="padding: 10px; background-color: #3D3D3D; border-radius: 5px; margin: 5px 0;">
+                        <p>🔍 패턴: {pattern['pattern']}</p>
+                        <p>📊 위험도: {pattern['danger_level']}</p>
+                        <p>📝 분석: {pattern['analysis']}</p>
+                        <p>🎯 일치율: {match_score:.1f}%</p>
+                    </div>
+                """, unsafe_allow_html=True)
+
+    # CSS 스타일 추가
+    st.markdown("""
+    <style>
+        .expander-content {
+            background-color: #2D2D2D;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 5px;
+        }
+    </style>
+    """, unsafe_allow_html=True)
     
     # 위험도에 따른 색상 정의
     def get_color_style(score):
