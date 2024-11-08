@@ -7,6 +7,11 @@ import json
 from datetime import datetime
 import os
 import pandas as pd
+import streamlit as st
+import html
+import requests
+from PIL import Image
+from io import BytesIO
 
 # 페이지 설정
 st.set_page_config(
@@ -831,9 +836,21 @@ def display_file_analysis_results(analysis_results):
                     st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>분석:</div>", unsafe_allow_html=True)
                     st.markdown(f"<div style='background-color: rgba{tuple(int(border_color[i:i+2], 16) for i in (1, 3, 5))}, 0.1); padding: 10px; border-radius: 5px; color: #FFFFFF;'>{html.escape(result['analysis'])}</div>", unsafe_allow_html=True)
 
-                    # 참고 자료 링크
-                    if result.get("url"):
-                        st.markdown(f"<p><strong>🔗 <a href='{html.escape(result['url'])}' target='_blank' style='color:{border_color};'>참고 자료</a></strong></p>", unsafe_allow_html=True)
+                    # 썸네일 및 참고 자료 링크
+                    with st.container():
+                        # 썸네일 가져오기
+                        thumbnail_url = get_thumbnail_url(result.get("url"))
+                        if thumbnail_url:
+                            try:
+                                response = requests.get(thumbnail_url)
+                                image = Image.open(BytesIO(response.content))
+                                st.image(image, width=200, use_column_width=False)
+                            except:
+                                pass
+
+                        # 참고 자료 링크
+                        if result.get("url"):
+                            st.markdown(f"<p><strong>🔗 <a href='{html.escape(result['url'])}' target='_blank' style='color:{border_color};'>참고 자료</a></strong></p>", unsafe_allow_html=True)
 
                 # 구분선
                 st.markdown("<hr style='border: none; height: 1px; background-color: #555555;'>", unsafe_allow_html=True)
@@ -843,6 +860,26 @@ def display_file_analysis_results(analysis_results):
         st.success(f"✨ 총 {analysis_results['total_patterns']}개의 패턴이 발견되었습니다.")
     else:
         st.info("👀 발견된 패턴이 없습니다.")
+
+def get_thumbnail_url(url):
+    """URL에서 썸네일 URL 추출"""
+    if not url:
+        return None
+    
+    # 유튜브 URL 처리
+    video_id = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)
+    if video_id and 'youtube.com' in url:
+        return f"https://img.youtube.com/vi/{video_id.group(1)}/hqdefault.jpg"
+    
+    # 기타 URL 처리
+    try:
+        response = requests.get(url)
+        if 'image/' in response.headers.get('content-type', ''):
+            return url
+    except:
+        pass
+    
+    return None
 
 
 # 추가 CSS 스타일
