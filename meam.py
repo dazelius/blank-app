@@ -469,44 +469,164 @@ def find_matching_patterns(input_text, data, threshold=0.7):
     return found_patterns
 
 def display_analysis_results(patterns, total_score):
-    """분석 결과 표시 - 하이라이트 기능 추가"""
+    """분석 결과 표시 - 완전한 버전"""
+    # 상단 전체 위험도 점수 표시
     danger_level_class = get_danger_level_class(total_score)
     st.markdown(f"""
+        <style>
+        .danger-score {
+            font-size: 2.5em;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .matched-keywords {
+            background-color: #3D3D3D;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-family: 'Noto Sans KR', monospace;
+            margin: 2px;
+            display: inline-block;
+        }
+        .keyword-container {
+            margin: 10px 0;
+            line-height: 2;
+        }
+        .pattern-metadata {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin: 15px 0;
+            background-color: #2A2A2A;
+            padding: 10px;
+            border-radius: 8px;
+        }
+        .metadata-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .analysis-content {
+            background-color: #2A2A2A;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            line-height: 1.6;
+        }
+        </style>
         <div class="danger-meter">
             <h2>전체 위험도 점수</h2>
             <div class="danger-score {danger_level_class}">{total_score}</div>
         </div>
     """, unsafe_allow_html=True)
 
+    # 각 패턴별 결과 표시
     for pattern in patterns:
         danger_level_class = get_danger_level_class(pattern['danger_level'])
+        
+        # 썸네일 처리
         thumbnail_html = ""
         if 'thumbnail' in pattern:
             thumbnail_html = f'<img src="{pattern["thumbnail"]}" style="width:100%; max-width:480px; border-radius:10px; margin-top:10px;">'
         
-        # 원본 텍스트에서 패턴 하이라이트
+        # 하이라이트된 텍스트 생성
         highlighted_text = highlight_pattern_in_text(pattern['original_text'], pattern['pattern'])
         
-        # 매치 점수를 퍼센트로 표시
+        # 매치 점수를 퍼센트로 변환
         match_percentage = int(pattern['match_score'] * 100)
         
+        # 매칭된 키워드 처리
+        keywords_html = ""
+        if 'matched_keywords' in pattern and pattern['matched_keywords']:
+            keywords = pattern['matched_keywords']
+            keyword_spans = ''.join([
+                f'<span class="matched-keywords">{keyword}</span>'
+                for keyword in keywords
+            ])
+            keywords_html = f"""
+            <div class="keyword-container">
+                <p>🔑 매칭된 키워드:</p>
+                <div>{keyword_spans}</div>
+            </div>
+            """
+        
+        # 메인 카드 표시
         st.markdown(f"""
             <div class="analysis-card">
                 <h3>🔍 발견된 패턴:</h3>
-                <div class="highlighted-text" style="
-                    background-color: #2A2A2A;
-                    padding: 15px;
-                    border-radius: 8px;
-                    margin: 10px 0;
-                    line-height: 1.6;
-                    font-family: 'Noto Sans KR', sans-serif;">
-                    {highlighted_text}
+                {keywords_html}
+                
+                <div class="pattern-metadata">
+                    <div class="metadata-item">
+                        <span>📊 위험도:</span>
+                        <span class="{danger_level_class}">{pattern['danger_level']}</span>
+                    </div>
+                    <div class="metadata-item">
+                        <span>🎯 일치율:</span>
+                        <span>{match_percentage}%</span>
+                    </div>
+                    <div class="metadata-item">
+                        <span>⏰ 검출 시각:</span>
+                        <span>{pattern['timestamp']}</span>
+                    </div>
                 </div>
-                <p>📊 위험도: <span class="{danger_level_class}">{pattern['danger_level']}</span></p>
-                <p>🎯 일치율: {match_percentage}%</p>
-                <p>📝 분석: {pattern['analysis']}</p>
-                {f'<p>🔗 <a href="{pattern["url"]}" target="_blank">참고 자료</a></p>' if pattern['url'] else ''}
+                
+                <div class="analysis-content">
+                    <div style="font-weight: bold;">원본 텍스트:</div>
+                    <div style="font-family: 'Noto Sans KR', sans-serif;">
+                        {highlighted_text}
+                    </div>
+                </div>
+                
+                <div class="analysis-content">
+                    <div style="font-weight: bold;">📝 분석:</div>
+                    <div>{pattern['analysis']}</div>
+                </div>
+                
+                {f'<div class="metadata-item"><span>🔗</span><a href="{pattern["url"]}" target="_blank">참고 자료</a></div>' if pattern.get('url') else ''}
                 {thumbnail_html}
+            </div>
+        """, unsafe_allow_html=True)
+        
+        # 추가 정보가 있는 경우 expander로 표시
+        if pattern.get('additional_info'):
+            with st.expander("추가 정보"):
+                st.markdown(pattern['additional_info'])
+
+    # 요약 정보 표시 (여러 패턴이 있는 경우)
+    if len(patterns) > 1:
+        unique_keywords = set()
+        max_danger = 0
+        avg_match = 0
+        
+        for pattern in patterns:
+            if 'matched_keywords' in pattern:
+                unique_keywords.update(pattern['matched_keywords'])
+            max_danger = max(max_danger, pattern['danger_level'])
+            avg_match += pattern['match_score']
+        
+        avg_match = (avg_match / len(patterns)) * 100
+        
+        st.markdown(f"""
+            <div class="analysis-card">
+                <h3>📊 분석 요약</h3>
+                <div class="pattern-metadata">
+                    <div class="metadata-item">
+                        <span>발견된 패턴 수:</span>
+                        <span>{len(patterns)}개</span>
+                    </div>
+                    <div class="metadata-item">
+                        <span>고유 키워드 수:</span>
+                        <span>{len(unique_keywords)}개</span>
+                    </div>
+                    <div class="metadata-item">
+                        <span>최대 위험도:</span>
+                        <span class="{get_danger_level_class(max_danger)}">{max_danger}</span>
+                    </div>
+                    <div class="metadata-item">
+                        <span>평균 일치율:</span>
+                        <span>{avg_match:.1f}%</span>
+                    </div>
+                </div>
             </div>
         """, unsafe_allow_html=True)
 
