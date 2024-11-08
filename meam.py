@@ -581,8 +581,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-def analyze_file_contents(file_content, data, batch_size=100):
-    """파일 내용 분석 - 최적화 버전"""
+def analyze_file_contents(file_content, data):
+    """파일 내용 분석 - 순차 처리 버전"""
     if file_content is not None:
         try:
             # 파일 확장자 확인
@@ -605,62 +605,64 @@ def analyze_file_contents(file_content, data, batch_size=100):
             progress_bar = st.progress(0)
             progress_text = st.empty()
             
-            from concurrent.futures import ThreadPoolExecutor, as_completed
-            
-            def process_batch(batch_texts, column):
-                """텍스트 배치 처리"""
-                batch_results = []
-                for text in batch_texts:
-                    if isinstance(text, str) and text.strip():
-                        patterns = find_matching_patterns(text, data)
-                        if patterns:
-                            score = calculate_danger_score(patterns)
-                            batch_results.append({
-                                'text': text,
-                                'column': column,
-                                'patterns': patterns,
-                                'score': score
-                            })
-                return batch_results
-            
             # 전체 작업량 계산
             total_rows = sum(len(df[col].dropna()) for col in text_columns)
             processed_rows = 0
             
-            with ThreadPoolExecutor(max_workers=4) as executor:
-                futures = []
+            # 캐시 초기화
+            patterns_cache = {}
+            
+            def get_cached_patterns(text, data, cache=patterns_cache):
+                """패턴 매칭 결과 캐싱"""
+                if text in cache:
+                    return cache[text]
+                patterns = find_matching_patterns(text, data)
+                if len(cache) > 1000:  # 캐시 크기 제한
+                    cache.clear()
+                cache[text] = patterns
+                return patterns
+            
+            chunk_size = 10  # 한 번에 처리할 행 수
+            
+            # 컬럼별 순차 처리
+            for col in text_columns:
+                # Null이 아닌 텍스트만 선택
+                texts = df[col].dropna().tolist()
                 
-                # 컬럼별 처리
-                for col in text_columns:
-                    # Null이 아닌 텍스트만 선택
-                    texts = df[col].dropna().tolist()
+                # 청크 단위로 처리
+                for i in range(0, len(texts), chunk_size):
+                    chunk_texts = texts[i:i + chunk_size]
                     
-                    # 배치 단위로 분할
-                    for i in range(0, len(texts), batch_size):
-                        batch = texts[i:i + batch_size]
-                        future = executor.submit(process_batch, batch, col)
-                        futures.append((future, len(batch)))
-                
-                # 결과 수집
-                for future, batch_length in futures:
-                    try:
-                        results = future.result()
-                        all_results.extend(results)
-                        total_patterns_found += sum(len(r['patterns']) for r in results)
+                    for text in chunk_texts:
+                        if isinstance(text, str) and text.strip():
+                            # 캐시된 패턴 검색 또는 새로 분석
+                            patterns = get_cached_patterns(text, data)
+                            
+                            if patterns:
+                                score = calculate_danger_score(patterns)
+                                all_results.append({
+                                    'text': text,
+                                    'column': col,
+                                    'patterns': patterns,
+                                    'score': score
+                                })
+                                total_patterns_found += len(patterns)
                         
                         # 진행률 업데이트
-                        processed_rows += batch_length
+                        processed_rows += 1
                         progress = processed_rows / total_rows
                         progress_bar.progress(progress)
                         progress_text.text(f'분석 진행 중... {int(progress * 100)}%')
-                    except Exception as e:
-                        st.error(f"배치 처리 중 오류 발생: {str(e)}")
+                    
+                    # 메모리 최적화를 위한 중간 결과 정리
+                    if len(all_results) > 1000:
+                        all_results = sorted(all_results, key=lambda x: x['score'], reverse=True)[:500]
             
             # 프로그레스 바와 텍스트 제거
             progress_bar.empty()
             progress_text.empty()
             
-            # 위험도 순으로 정렬
+            # 최종 결과 정렬
             all_results.sort(key=lambda x: x['score'], reverse=True)
             
             return {
