@@ -367,8 +367,7 @@ def get_youtube_thumbnail(url):
 
 # 3. 병렬 처리 최적화
 def find_matching_patterns(input_text, data, threshold=0.7):
-    """병렬 처리 최적화 버전 - 중복 패턴 제거"""
-    # 입력 텍스트 정제
+    """병렬 처리 최적화 버전 - 유사 패턴 그룹화"""
     input_text = input_text.strip()
     if not input_text or input_text.isspace():
         return []
@@ -380,7 +379,7 @@ def find_matching_patterns(input_text, data, threshold=0.7):
     
     if len(input_words) < 2:
         return []
-    
+        
     patterns = preprocess_patterns(data)
     input_data = (input_text_cleaned, input_words, input_chars)
     
@@ -388,24 +387,31 @@ def find_matching_patterns(input_text, data, threshold=0.7):
     from functools import partial
     
     found_patterns = []
-    seen_patterns = set()  # 중복 패턴 체크를 위한 집합
+    pattern_groups = {}  # 패턴 그룹을 저장할 딕셔너리
     
-    def is_similar_pattern(pattern1, pattern2, similarity_threshold=0.9):
-        """두 패턴이 매우 유사한지 확인"""
-        text1 = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern1.lower())
-        text2 = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern2.lower())
-        
-        # 완전히 동일한 경우
-        if text1 == text2:
-            return True
-            
-        # 한 텍스트가 다른 텍스트에 포함되는 경우
-        if text1 in text2 or text2 in text1:
-            return True
-            
-        # 유사도 검사
-        similarity = difflib.SequenceMatcher(None, text1, text2).ratio()
-        return similarity >= similarity_threshold
+    def get_pattern_key(text):
+        """패턴의 핵심 키워드를 추출하여 정렬된 튜플로 반환"""
+        cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', text.lower())
+        words = sorted(set(w for w in cleaned.split() if len(w) >= 2))
+        return tuple(words)
+    
+    def merge_patterns(existing, new_pattern):
+        """두 패턴을 병합"""
+        # 위험도는 최대값 사용
+        existing['danger_level'] = max(existing['danger_level'], new_pattern['danger_level'])
+        # 매치 점수는 최대값 사용
+        existing['match_score'] = max(existing['match_score'], new_pattern['match_score'])
+        # 키워드 병합
+        existing_keywords = set(existing.get('matched_keywords', []))
+        new_keywords = set(new_pattern.get('matched_keywords', []))
+        existing['matched_keywords'] = sorted(existing_keywords | new_keywords)
+        # URL이 있는 경우 추가
+        if new_pattern.get('url') and not existing.get('url'):
+            existing['url'] = new_pattern['url']
+        # 분석 내용이 다른 경우 추가
+        if new_pattern['analysis'] != existing['analysis']:
+            existing['analysis'] = f"{existing['analysis']}\n추가 분석: {new_pattern['analysis']}"
+        return existing
     
     def process_pattern_batch(patterns_batch):
         batch_results = []
@@ -416,61 +422,58 @@ def find_matching_patterns(input_text, data, threshold=0.7):
             result = check_func(pattern)
             if result:
                 result['original_text'] = input_text
-                batch_results.append(result)
+                result['matched_keywords'] = extract_keywords(result['pattern'])
+                # 패턴 키 생성
+                pattern_key = get_pattern_key(result['pattern'])
+                batch_results.append((pattern_key, result))
         return batch_results
     
-    # 패턴 길이별 처리
     with ThreadPoolExecutor(max_workers=8) as executor:
         futures = []
         
-        # 짧은 패턴 처리
-        futures.append(executor.submit(process_pattern_batch, patterns['short']))
+        # 모든 길이의 패턴을 처리
+        for pattern_type in ['short', 'medium', 'long']:
+            patterns_list = patterns[pattern_type]
+            chunk_size = max(1, len(patterns_list) // 4)
+            for i in range(0, len(patterns_list), chunk_size):
+                chunk = patterns_list[i:i + chunk_size]
+                futures.append(executor.submit(process_pattern_batch, chunk))
         
-        # 중간 길이 패턴 처리
-        chunk_size = max(1, len(patterns['medium']) // 4)
-        for i in range(0, len(patterns['medium']), chunk_size):
-            chunk = patterns['medium'][i:i + chunk_size]
-            futures.append(executor.submit(process_pattern_batch, chunk))
-        
-        # 긴 패턴 처리
-        long_chunk_size = max(1, len(patterns['long']) // 4)
-        for i in range(0, len(patterns['long']), long_chunk_size):
-            chunk = patterns['long'][i:i + long_chunk_size]
-            futures.append(executor.submit(process_pattern_batch, chunk))
-        
-        # 결과 수집 및 중복 제거
+        # 결과 수집 및 그룹화
         for future in as_completed(futures):
             try:
                 results = future.result()
-                for result in results:
-                    # 중복 체크
-                    is_duplicate = False
-                    result_text = result['pattern']
-                    
-                    # 이미 처리된 패턴들과 비교
-                    for seen_pattern in seen_patterns:
-                        if is_similar_pattern(result_text, seen_pattern):
-                            is_duplicate = True
-                            break
-                    
-                    if not is_duplicate:
-                        found_patterns.append(result)
-                        seen_patterns.add(result_text)
+                for pattern_key, result in results:
+                    if pattern_key in pattern_groups:
+                        pattern_groups[pattern_key] = merge_patterns(pattern_groups[pattern_key], result)
+                    else:
+                        pattern_groups[pattern_key] = result
             except Exception as e:
                 st.error(f"패턴 매칭 중 오류 발생: {str(e)}")
     
+    # 그룹화된 결과를 리스트로 변환
+    found_patterns = list(pattern_groups.values())
+    
     # 매치 점수와 위험도로 정렬
     found_patterns.sort(key=lambda x: (x['match_score'], x['danger_level']), reverse=True)
-    found_patterns = found_patterns[:10]  # 상위 10개만 유지
     
-    # 썸네일 처리
+    # 유튜브 썸네일 처리
     for pattern in found_patterns:
-        if pattern['url'] and 'youtube.com' in pattern['url']:
+        if pattern.get('url') and 'youtube.com' in pattern['url']:
             thumbnail = get_youtube_thumbnail(pattern['url'])
             if thumbnail:
                 pattern['thumbnail'] = thumbnail
     
     return found_patterns
+
+def extract_keywords(text):
+    """텍스트에서 핵심 키워드 추출"""
+    # 특수문자 제거 및 소문자 변환
+    cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', text.lower())
+    # 2글자 이상 단어만 추출
+    words = [w for w in cleaned.split() if len(w) >= 2]
+    # 중복 제거 및 정렬
+    return sorted(set(words))
 
 def display_analysis_results(patterns, total_score):
     """분석 결과 표시 - 하이라이트 기능 추가"""
