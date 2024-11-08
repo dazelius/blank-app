@@ -582,13 +582,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def analyze_file_contents(file_content, data):
-    """파일 내용 분석 - 개선된 버전"""
+    """파일 내용 분석 - 고성능 버전"""
     if file_content is not None:
         try:
             # 로그 컨테이너 생성
             log_container = st.empty()
             def update_log(message):
-                """로그 메시지 업데이트"""
                 log_container.markdown(f"""
                     <div style="background-color: #2D2D2D; padding: 10px; border-radius: 5px; margin: 5px 0;">
                         {message}
@@ -597,110 +596,132 @@ def analyze_file_contents(file_content, data):
 
             update_log("📂 파일 로딩 중...")
             
-            # 파일 확장자 확인 및 로드
+            # 파일 로드 및 전처리
             file_type = file_content.name.split('.')[-1].lower()
-            
             if file_type == 'csv':
                 df = pd.read_csv(file_content)
             elif file_type in ['xlsx', 'xls']:
                 df = pd.read_excel(file_content)
             else:
-                st.error("지원하지 않는 파일 형식입니다. CSV 또는 Excel 파일만 지원합니다.")
+                st.error("지원하지 않는 파일 형식입니다.")
                 return None
 
-            # 텍스트 컬럼만 선택
-            text_columns = df.select_dtypes(include=['object']).columns
-            update_log(f"📊 분석할 컬럼 수: {len(text_columns)}개")
+            # 데이터 패턴 전처리 (한 번만 수행)
+            processed_data = []
+            for item in data:
+                pattern_text = item.get('text', '').lower()
+                pattern_words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text).split())
+                if pattern_words:
+                    processed_data.append({
+                        'words': pattern_words,
+                        'original': item,
+                        'pattern': pattern_text
+                    })
             
+            update_log("🔍 패턴 데이터 준비 완료")
+
+            # 텍스트 컬럼 처리
+            text_columns = df.select_dtypes(include=['object']).columns
             total_patterns_found = 0
             all_results = []
             
-            # 프로그레스 바 초기화
             progress_bar = st.progress(0)
             progress_text = st.empty()
             
-            # 전체 작업량 계산
+            def process_text_batch(texts, patterns, threshold=0.7):
+                """텍스트 배치 벡터화 처리"""
+                results = []
+                
+                # 텍스트 전처리를 벡터화
+                cleaned_texts = [re.sub(r'[^가-힣a-zA-Z0-9\s]', '', str(t).lower()) for t in texts]
+                text_words = [set(t.split()) for t in cleaned_texts]
+                
+                # 각 패턴에 대해 일괄 처리
+                for pattern in patterns:
+                    pattern_words = pattern['words']
+                    
+                    for idx, (words, original_text) in enumerate(zip(text_words, texts)):
+                        if not words:
+                            continue
+                            
+                        # 빠른 초기 필터링
+                        common_words = words & pattern_words
+                        if not common_words:
+                            continue
+                        
+                        # 유사도 계산
+                        word_match_ratio = len(common_words) / len(pattern_words)
+                        if word_match_ratio >= threshold:
+                            results.append({
+                                'text': original_text,
+                                'pattern': pattern['original']['text'],
+                                'analysis': pattern['original']['output'],
+                                'danger_level': int(pattern['original'].get('dangerlevel', 0)),
+                                'url': pattern['original'].get('url', ''),
+                                'match_score': word_match_ratio
+                            })
+                
+                return results
+
+            # 컬럼별 병렬 처리
             total_rows = sum(len(df[col].dropna()) for col in text_columns)
             processed_rows = 0
+            batch_size = 1000  # 큰 배치 사이즈로 처리
             
-            # 결과 캐시 초기화
-            pattern_cache = {}
-            
-            def analyze_text(text):
-                """개별 텍스트 분석"""
-                if not isinstance(text, str) or not text.strip():
-                    return None
-                
-                cache_key = hash(text.strip())
-                if cache_key in pattern_cache:
-                    return pattern_cache[cache_key]
-                
-                patterns = find_matching_patterns(text, data)
-                if patterns:
-                    result = {
-                        'text': text,
-                        'patterns': patterns,
-                        'score': calculate_danger_score(patterns)
-                    }
-                    pattern_cache[cache_key] = result
-                    return result
-                return None
-
-            # 컬럼별 처리
             for col_idx, col in enumerate(text_columns):
-                update_log(f"🔍 '{col}' 컬럼 분석 중... ({col_idx + 1}/{len(text_columns)})")
+                update_log(f"📊 '{col}' 컬럼 처리 중 ({col_idx + 1}/{len(text_columns)})")
                 
+                # Null이 아닌 텍스트만 선택하고 배치로 처리
                 texts = df[col].dropna().tolist()
-                chunk_size = 5  # 작은 청크 사이즈로 설정
                 
-                for i in range(0, len(texts), chunk_size):
-                    chunk = texts[i:i + chunk_size]
-                    chunk_results = []
+                for i in range(0, len(texts), batch_size):
+                    batch = texts[i:i + batch_size]
+                    results = process_text_batch(batch, processed_data)
                     
-                    for text in chunk:
-                        result = analyze_text(text)
-                        if result:
+                    if results:
+                        for result in results:
                             result['column'] = col
-                            chunk_results.append(result)
-                            total_patterns_found += len(result['patterns'])
-                    
-                    all_results.extend(chunk_results)
-                    processed_rows += len(chunk)
+                            
+                        # 중복 제거 및 점수 기반 필터링
+                        filtered_results = []
+                        seen_patterns = set()
+                        
+                        for r in sorted(results, key=lambda x: x['match_score'], reverse=True):
+                            pattern_key = (r['pattern'], r['text'])
+                            if pattern_key not in seen_patterns:
+                                seen_patterns.add(pattern_key)
+                                filtered_results.append(r)
+                        
+                        all_results.extend(filtered_results)
+                        total_patterns_found += len(filtered_results)
                     
                     # 진행률 업데이트
+                    processed_rows += len(batch)
                     progress = min(processed_rows / total_rows, 1.0)
                     progress_bar.progress(progress)
                     progress_text.text(f'분석 진행 중... {int(progress * 100)}%')
                     
-                    # 중간 상태 업데이트
-                    if chunk_results:
+                    # 중간 상태 업데이트 (너무 자주 업데이트하지 않도록)
+                    if len(all_results) % 100 == 0:
                         update_log(f"""
-                            📌 현재 상태:
+                            📌 현재 진행 상황:
                             - 처리된 행: {processed_rows:,}/{total_rows:,}
                             - 발견된 패턴: {total_patterns_found:,}개
-                            - 마지막 검출: {chunk_results[-1]['text'][:50]}...
                         """)
-                    
-                    # 메모리 관리
-                    if len(all_results) > 1000:
-                        all_results.sort(key=lambda x: x['score'], reverse=True)
-                        all_results = all_results[:500]
-                    
-                    # CPU 과부하 방지를 위한 짧은 대기
-                    import time
-                    time.sleep(0.01)
-
+            
             # 최종 결과 정리
             progress_bar.empty()
             progress_text.empty()
             
             if all_results:
-                all_results.sort(key=lambda x: x['score'], reverse=True)
+                # 최종 정렬 및 중복 제거
+                all_results.sort(key=lambda x: (x['match_score'], x['danger_level']), reverse=True)
+                
                 update_log(f"""
                     ✅ 분석 완료:
                     - 총 처리된 행: {processed_rows:,}개
-                    - 총 발견된 패턴: {total_patterns_found:,}개
-                    - 최고 위험도: {max(r['score'] for r in all_results)}
+                    - 발견된 패턴: {total_patterns_found:,}개
+                    - 처리 시간: {time.time() - start_time:.1f}초
                 """)
                 
                 return {
