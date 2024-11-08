@@ -370,15 +370,14 @@ def find_matching_patterns(input_text, data, threshold=0.7):
     """병렬 처리 최적화 버전"""
     # 입력 텍스트 정제
     input_text = input_text.strip()
-    if not input_text or input_text.isspace():  # 공백만 있는 경우 체크
+    if not input_text or input_text.isspace():
         return []
     
     # 입력 텍스트 전처리
     input_text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', input_text.lower())
-    input_words = set(w for w in input_text_cleaned.split() if w.strip())  # 공백 단어 제거
+    input_words = set(w for w in input_text_cleaned.split() if w.strip())
     input_chars = set(input_text_cleaned)
     
-    # 의미 있는 단어가 2개 미만이면 건너뛰기
     if len(input_words) < 2:
         return []
     
@@ -388,26 +387,21 @@ def find_matching_patterns(input_text, data, threshold=0.7):
     
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from functools import partial
-    from heapq import heappush, heappushpop, nlargest
     
-    # 상위 10개 결과를 유지하기 위한 힙
-    result_heap = []
+    # 결과를 저장할 리스트
+    found_patterns = []
     
     # 병렬 처리 함수
     def process_pattern_batch(patterns_batch):
         batch_results = []
         check_func = partial(check_pattern, input_data, threshold=threshold)
         for pattern in patterns_batch:
-            if not pattern['cleaned_text'].strip():  # 공백 패턴 무시
+            if not pattern['cleaned_text'].strip():
                 continue
             result = check_func(pattern)
             if result:
                 result['original_text'] = input_text
-                # 힙에 결과 추가 (최대 10개 유지)
-                if len(result_heap) < 10:
-                    heappush(batch_results, (result['match_score'], result))
-                else:
-                    heappushpop(batch_results, (result['match_score'], result))
+                batch_results.append(result)
         return batch_results
     
     # 패턴 길이별 처리
@@ -435,16 +429,13 @@ def find_matching_patterns(input_text, data, threshold=0.7):
         for future in [short_future] + medium_futures + long_futures:
             try:
                 results = future.result()
-                for score, result in results:
-                    if len(result_heap) < 10:
-                        heappush(result_heap, (score, result))
-                    else:
-                        heappushpop(result_heap, (score, result))
+                found_patterns.extend(results)
             except Exception as e:
                 st.error(f"패턴 매칭 중 오류 발생: {str(e)}")
     
-    # 상위 10개 결과 추출 및 정렬
-    found_patterns = [result for _, result in nlargest(10, result_heap)]
+    # 매치 점수로 정렬하고 상위 10개만 선택
+    found_patterns.sort(key=lambda x: (x['match_score'], x['danger_level']), reverse=True)
+    found_patterns = found_patterns[:10]
     
     # 유튜브 썸네일 처리 (상위 10개에 대해서만)
     for pattern in found_patterns:
