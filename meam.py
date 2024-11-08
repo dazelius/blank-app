@@ -762,7 +762,7 @@ def display_file_analysis_results(analysis_results):
     """파일 분석 결과 표시 - 개선된 버전"""
     if not analysis_results or not analysis_results['results']:
         return
-        
+    
     import html
     from datetime import datetime
     
@@ -775,39 +775,29 @@ def display_file_analysis_results(analysis_results):
     def get_danger_badge(score):
         """위험도에 따른 배지 생성"""
         if score >= 70:
-            return f'<span style="background-color: #FF5252; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.9em;">위험 {score}</span>'
+            return f'<span class="danger-badge danger-badge--high">{score}</span>'
         elif score >= 30:
-            return f'<span style="background-color: #FFD700; color: black; padding: 2px 8px; border-radius: 12px; font-size: 0.9em;">주의 {score}</span>'
+            return f'<span class="danger-badge danger-badge--medium">{score}</span>'
         else:
-            return f'<span style="background-color: #00E676; color: black; padding: 2px 8px; border-radius: 12px; font-size: 0.9em;">안전 {score}</span>'
-    
-    # 스타일 정의
+            return f'<span class="danger-badge danger-badge--low">{score}</span>'
+
+    # 추가된 CSS 스타일
     st.markdown("""
-        <style>
-        .analysis-header {
-            background: linear-gradient(135deg, #434343 0%, #000000 100%);
-            padding: 20px;
-            border-radius: 15px;
-            margin-bottom: 20px;
-            text-align: center;
-            color: #E0E0E0;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    <style>
+        .danger-badge {
+            background-color: #FF5252;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.9em;
         }
-        .stats-container {
-            display: flex;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin: 20px 0;
+        .danger-badge--medium {
+            background-color: #FFD700;
+            color: black;
         }
-        .stats-card {
-            background-color: #2D2D2D;
-            padding: 15px;
-            border-radius: 10px;
-            flex: 1;
-            min-width: 200px;
-            text-align: center;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        .danger-badge--low {
+            background-color: #00E676;
+            color: black;
         }
         .result-card {
             background-color: #2D2D2D;
@@ -838,54 +828,26 @@ def display_file_analysis_results(analysis_results):
             padding: 2px 5px;
             color: #FFB20F;
         }
-        .tag {
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 0.9em;
-            margin: 2px;
-        }
         .alert-box {
             padding: 10px;
             border-radius: 8px;
             margin: 10px 0;
         }
-        </style>
+    </style>
     """, unsafe_allow_html=True)
-    
+
     # 통계 계산
     total_score = sum(result['danger_level'] for result in analysis_results['results'])
     avg_score = total_score / len(analysis_results['results']) if analysis_results['results'] else 0
     high_risk_count = sum(1 for r in analysis_results['results'] if r['danger_level'] >= 70)
-    
-    # 헤더 표시
-    st.markdown(f"""
-        <div class="analysis-header">
-            <h2>📊 분석 결과 요약</h2>
-            <div class="stats-container">
-                <div class="stats-card">
-                    <h3>검출된 패턴</h3>
-                    <div style="font-size: 2em;">{analysis_results['total_patterns']:,}</div>
-                </div>
-                <div class="stats-card">
-                    <h3>평균 위험도</h3>
-                    <div style="font-size: 2em;">{avg_score:.1f}</div>
-                </div>
-                <div class="stats-card">
-                    <h3>고위험 항목</h3>
-                    <div style="font-size: 2em;">{high_risk_count}</div>
-                </div>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-    
+
     # 결과 정렬 및 그룹화
     sorted_results = sorted(
         analysis_results['results'],
         key=lambda x: (x['danger_level'], x['match_score']),
         reverse=True
     )
-    
+
     # 위험도별 결과 표시
     for severity in ['high', 'medium', 'low']:
         if severity == 'high':
@@ -934,7 +896,7 @@ def display_file_analysis_results(analysis_results):
                         {f'<div class="content-section"><a href="{escape_text(result["url"])}" target="_blank" style="color: {border_color}">🔗 참고 자료</a></div>' if result.get("url") else ''}
                     </div>
                 """, unsafe_allow_html=True)
-                
+    
     # 분석 완료 메시지
     if sorted_results:
         st.success(f"✨ 총 {analysis_results['total_patterns']}개의 패턴이 발견되었습니다.")
