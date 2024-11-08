@@ -780,8 +780,20 @@ def display_file_analysis_results(analysis_results):
             return f'<span class="danger-badge danger-badge--medium">{score}</span>'
         else:
             return f'<span class="danger-badge danger-badge--low">{score}</span>'
+    
+    # 통계 계산
+    total_score = sum(result['danger_level'] for result in analysis_results['results'])
+    avg_score = total_score / len(analysis_results['results']) if analysis_results['results'] else 0
+    high_risk_count = sum(1 for r in analysis_results['results'] if r['danger_level'] >= 70)
 
-    # 추가된 CSS 스타일
+    # 결과 정렬 및 그룹화
+    sorted_results = sorted(
+        analysis_results['results'],
+        key=lambda x: (x['danger_level'], x['match_score']),
+        reverse=True
+    )
+
+    # CSS 스타일 추가
     st.markdown("""
     <style>
         .danger-badge {
@@ -835,18 +847,6 @@ def display_file_analysis_results(analysis_results):
         }
     </style>
     """, unsafe_allow_html=True)
-
-    # 통계 계산
-    total_score = sum(result['danger_level'] for result in analysis_results['results'])
-    avg_score = total_score / len(analysis_results['results']) if analysis_results['results'] else 0
-    high_risk_count = sum(1 for r in analysis_results['results'] if r['danger_level'] >= 70)
-
-    # 결과 정렬 및 그룹화
-    sorted_results = sorted(
-        analysis_results['results'],
-        key=lambda x: (x['danger_level'], x['match_score']),
-        reverse=True
-    )
 
     # 위험도별 결과 표시
     for severity in ['high', 'medium', 'low']:
