@@ -173,64 +173,76 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# 변경 1: 데이터 전처리 캐시 함수 추가
-@st.cache_data(ttl=3600)  # 1시간 캐시
+# 1. 데이터 전처리 최적화
+@st.cache_data(ttl=3600)
 def preprocess_patterns(data):
-    """패턴 데이터 전처리 및 캐싱"""
+    """패턴 데이터 전처리 및 캐싱 - 최적화 버전"""
     processed_patterns = []
+    
+    # 길이별로 패턴 분류
+    short_patterns = []
+    medium_patterns = []
+    long_patterns = []
+    
     for record in data:
         pattern_text = record.get('text', '').lower()
         pattern_text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text)
         pattern_words = set(pattern_text_cleaned.split())
-        pattern_chars = set(pattern_text_cleaned)
         
-        processed_patterns.append({
+        processed = {
             'original': record,
             'cleaned_text': pattern_text_cleaned,
             'words': pattern_words,
-            'chars': pattern_chars,
-            'word_count': len(pattern_words)
-        })
-    return processed_patterns
+            'chars': set(pattern_text_cleaned),
+            'word_count': len(pattern_words),
+            'length': len(pattern_text_cleaned)
+        }
+        
+        # 길이에 따라 분류
+        if processed['length'] <= 10:
+            short_patterns.append(processed)
+        elif processed['length'] <= 30:
+            medium_patterns.append(processed)
+        else:
+            long_patterns.append(processed)
+    
+    return {
+        'short': short_patterns,
+        'medium': medium_patterns,
+        'long': long_patterns
+    }
 
-# 변경 2: 개별 패턴 매칭 함수
+
+# 2. 패턴 매칭 최적화
 def check_pattern(input_data, pattern_data, threshold=0.7):
-    """단일 패턴 매칭 검사"""
+    """단일 패턴 매칭 검사 - 최적화 버전"""
     input_text_cleaned, input_words, input_chars = input_data
     
-    # 1. 빠른 필터링: 공통 문자가 없으면 건너뛰기
-    if not (input_chars & pattern_data['chars']):
+    # 빠른 문자 기반 필터링
+    char_intersection = len(input_chars & pattern_data['chars'])
+    if char_intersection < min(3, len(pattern_data['chars']) * 0.3):
         return None
     
-    # 2. 공통 단어 확인
+    # 단어 기반 필터링
     common_words = input_words & pattern_data['words']
-    if not common_words:
-        return None
+    word_match_ratio = len(common_words) / pattern_data['word_count'] if pattern_data['word_count'] > 0 else 0
     
-    # 3. 전체 문장 유사도 검사
-    word_match_ratio = len(common_words) / pattern_data['word_count']
-    if word_match_ratio < threshold * 0.5:
-        return None
-        
-    full_text_similarity = difflib.SequenceMatcher(None, input_text_cleaned, pattern_data['cleaned_text']).ratio()
+    # 짧은 패턴은 포함 여부만 빠르게 체크
+    if pattern_data['length'] <= 10:
+        if pattern_data['cleaned_text'] in input_text_cleaned:
+            similarity = 1.0
+        elif word_match_ratio < threshold * 0.5:
+            return None
+        else:
+            similarity = word_match_ratio
+    else:
+        # 긴 패턴은 단어 매칭 비율로 1차 필터링
+        if word_match_ratio < threshold * 0.5:
+            return None
+        similarity = difflib.SequenceMatcher(None, input_text_cleaned, pattern_data['cleaned_text']).ratio()
     
-    # 4. 부분 문자열 포함 여부 검사 (짧은 패턴에 대해서만)
-    contains_pattern = False
-    if len(pattern_data['cleaned_text']) <= 10:
-        contains_pattern = pattern_data['cleaned_text'] in input_text_cleaned
-    
-    if (full_text_similarity >= threshold or 
-        contains_pattern or 
-        word_match_ratio >= threshold):
-        
-        final_similarity = max(
-            full_text_similarity,
-            1.0 if contains_pattern else 0.0,
-            word_match_ratio
-        )
-        
+    if similarity >= threshold:
         record = pattern_data['original']
-        # dangerlevel 필드의 안전한 형변환 처리
         try:
             danger_level = int(record.get('dangerlevel', 0))
         except (ValueError, TypeError):
@@ -242,7 +254,7 @@ def check_pattern(input_data, pattern_data, threshold=0.7):
             'danger_level': danger_level,
             'url': record.get('url', ''),
             'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'match_score': final_similarity
+            'match_score': similarity
         }
     
     return None
@@ -353,9 +365,9 @@ def get_youtube_thumbnail(url):
         return f"https://img.youtube.com/vi/{video_id.group(1)}/hqdefault.jpg"
     return None
 
-# 변경 3: 병렬 처리를 적용한 메인 매칭 함수
+# 3. 병렬 처리 최적화
 def find_matching_patterns(input_text, data, threshold=0.7):
-    """병렬 처리를 적용한 패턴 매칭"""
+    """병렬 처리 최적화 버전"""
     if not input_text.strip():
         return []
     
@@ -364,35 +376,55 @@ def find_matching_patterns(input_text, data, threshold=0.7):
     input_words = set(input_text_cleaned.split())
     input_chars = set(input_text_cleaned)
     
-    if len(input_words) < 2:  # 입력이 너무 짧으면 건너뛰기
+    if len(input_words) < 2:
         return []
     
-    # 데이터 전처리
-    processed_patterns = preprocess_patterns(data)
+    # 데이터 전처리 및 분류
+    patterns = preprocess_patterns(data)
     input_data = (input_text_cleaned, input_words, input_chars)
     
-    # 병렬 처리 실행
     from concurrent.futures import ThreadPoolExecutor, as_completed
+    from functools import partial
     
     found_patterns = []
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        # 작업 제출
-        future_to_pattern = {
-            executor.submit(check_pattern, input_data, pattern, threshold): pattern
-            for pattern in processed_patterns
-        }
+    
+    # 병렬 처리 함수
+    def process_pattern_batch(patterns_batch):
+        results = []
+        check_func = partial(check_pattern, input_data, threshold=threshold)
+        for pattern in patterns_batch:
+            result = check_func(pattern)
+            if result:
+                result['original_text'] = input_text
+                results.append(result)
+        return results
+    
+    # 패턴 길이별 처리
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        # 짧은 패턴 먼저 처리
+        short_future = executor.submit(process_pattern_batch, patterns['short'])
+        
+        # 중간 길이 패턴을 chunk로 나누어 처리
+        chunk_size = max(1, len(patterns['medium']) // 4)
+        medium_futures = [
+            executor.submit(process_pattern_batch, chunk)
+            for chunk in [patterns['medium'][i:i + chunk_size] 
+                         for i in range(0, len(patterns['medium']), chunk_size)]
+        ]
+        
+        # 긴 패턴도 chunk로 처리
+        long_chunk_size = max(1, len(patterns['long']) // 4)
+        long_futures = [
+            executor.submit(process_pattern_batch, chunk)
+            for chunk in [patterns['long'][i:i + long_chunk_size] 
+                         for i in range(0, len(patterns['long']), long_chunk_size)]
+        ]
         
         # 결과 수집
-        for future in as_completed(future_to_pattern):
+        for future in [short_future] + medium_futures + long_futures:
             try:
-                result = future.result()
-                if result:
-                    result['original_text'] = input_text
-                    if result['url'] and 'youtube.com' in result['url']:
-                        thumbnail = get_youtube_thumbnail(result['url'])
-                        if thumbnail:
-                            result['thumbnail'] = thumbnail
-                    found_patterns.append(result)
+                results = future.result()
+                found_patterns.extend(results)
             except Exception as e:
                 st.error(f"패턴 매칭 중 오류 발생: {str(e)}")
     
