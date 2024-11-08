@@ -760,6 +760,8 @@ def analyze_file_contents(file_content, data):
 
 import html
 
+import html
+
 def display_file_analysis_results(analysis_results):
     """파일 분석 결과 표시 - 개선된 버전"""
     if not analysis_results or not analysis_results['results']:
