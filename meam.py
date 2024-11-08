@@ -759,175 +759,187 @@ def analyze_file_contents(file_content, data):
     return None
 
 def display_file_analysis_results(analysis_results):
-    """파일 분석 결과 표시 - 단순화된 버전"""
+    """파일 분석 결과 표시 - 개선된 버전"""
     if not analysis_results or not analysis_results['results']:
         return
+        
+    import html
+    from datetime import datetime
     
+    def escape_text(text):
+        """텍스트 HTML 이스케이프 처리"""
+        if isinstance(text, str):
+            return html.escape(text).replace('\n', '<br>')
+        return str(text)
+    
+    def get_danger_badge(score):
+        """위험도에 따른 배지 생성"""
+        if score >= 70:
+            return f'<span style="background-color: #FF5252; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.9em;">위험 {score}</span>'
+        elif score >= 30:
+            return f'<span style="background-color: #FFD700; color: black; padding: 2px 8px; border-radius: 12px; font-size: 0.9em;">주의 {score}</span>'
+        else:
+            return f'<span style="background-color: #00E676; color: black; padding: 2px 8px; border-radius: 12px; font-size: 0.9em;">안전 {score}</span>'
+    
+    # 스타일 정의
     st.markdown("""
         <style>
-        .info-container {
+        .analysis-header {
+            background: linear-gradient(135deg, #434343 0%, #000000 100%);
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            text-align: center;
+            color: #E0E0E0;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+        .stats-container {
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        .stats-card {
             background-color: #2D2D2D;
+            padding: 15px;
+            border-radius: 10px;
+            flex: 1;
+            min-width: 200px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        .result-card {
+            background-color: #2D2D2D;
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            border-left: 4px solid;
+        }
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 10px;
+            background-color: #3D3D3D;
             padding: 15px;
             border-radius: 10px;
             margin: 10px 0;
         }
-        .text-content {
+        .content-section {
             background-color: #3D3D3D;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 10px 0;
+        }
+        .highlight {
+            background: linear-gradient(104deg, rgba(255, 178, 15, 0.1), rgba(255, 178, 15, 0.2));
+            border-radius: 4px;
+            padding: 2px 5px;
+            color: #FFB20F;
+        }
+        .tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.9em;
+            margin: 2px;
+        }
+        .alert-box {
             padding: 10px;
             border-radius: 8px;
-            margin: 5px 0;
-            font-family: monospace;
-            white-space: pre-wrap;
-            word-break: break-word;
+            margin: 10px 0;
         }
         </style>
     """, unsafe_allow_html=True)
     
+    # 통계 계산
     total_score = sum(result['danger_level'] for result in analysis_results['results'])
     avg_score = total_score / len(analysis_results['results']) if analysis_results['results'] else 0
+    high_risk_count = sum(1 for r in analysis_results['results'] if r['danger_level'] >= 70)
     
-    # 통계 정보 표시
-    st.write("### 📊 분석 결과 요약")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.info(f"발견된 패턴 수: {analysis_results['total_patterns']}")
-    with col2:
-        st.warning(f"평균 위험도: {avg_score:.1f}")
-    with col3:
-        st.error(f"총 위험도: {total_score}")
-    
-    # 개별 결과 표시
-    st.write("### 🔍 상세 분석 결과")
-    
-    for result in sorted(analysis_results['results'], 
-                        key=lambda x: x['danger_level'], 
-                        reverse=True):
-        with st.expander(f"위험도 {result['danger_level']} - {result['column']}"):
-            # 원본 텍스트
-            st.markdown("**원본 텍스트:**")
-            st.code(result['text'], language=None)
-            
-            # 매칭된 패턴
-            st.markdown("**매칭된 패턴:**")
-            st.code(result['pattern'], language=None)
-            
-            # 분석 정보
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown(f"**위험도:** {result['danger_level']}")
-                st.markdown(f"**일치율:** {int(result['match_score'] * 100)}%")
-            with col2:
-                st.markdown(f"**컬럼:** {result['column']}")
-            
-            # 분석 내용
-            st.markdown("**분석:**")
-            st.info(result['analysis'])
-            
-            # 참고 자료
-            if result.get('url'):
-                st.markdown(f"[🔗 참고 자료]({result['url']})")
-    
-    # 분석 완료 메시지
-    st.success(f"총 {analysis_results['total_patterns']}개의 패턴이 발견되었습니다.")
-    
-    # 통계 표시
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown(f"""
-            <div style="text-align: center; padding: 10px; background-color: #2D2D2D; border-radius: 10px;">
-                <div style="font-size: 1.2em;">분석된 패턴 수</div>
-                <div style="font-size: 2em; {get_color_style(0)}">{analysis_results['total_patterns']}</div>
-            </div>
-        """, unsafe_allow_html=True)
-    with col2:
-        st.markdown(f"""
-            <div style="text-align: center; padding: 10px; background-color: #2D2D2D; border-radius: 10px;">
-                <div style="font-size: 1.2em;">평균 위험도</div>
-                <div style="font-size: 2em; {get_color_style(avg_score)}">{avg_score:.1f}</div>
-            </div>
-        """, unsafe_allow_html=True)
-    with col3:
-        st.markdown(f"""
-            <div style="text-align: center; padding: 10px; background-color: #2D2D2D; border-radius: 10px;">
-                <div style="font-size: 1.2em;">총 위험도</div>
-                <div style="font-size: 2em; {get_color_style(total_score)}">{total_score}</div>
-            </div>
-        """, unsafe_allow_html=True)
-
-    
-    # 결과를 위험도 순으로 정렬
-    sorted_results = sorted(analysis_results['results'], key=lambda x: x['score'], reverse=True)
-    
-    # 하이라이트 스타일 정의
-    highlight_style = """
-        background: linear-gradient(104deg, rgba(255, 178, 15, 0.1) 0.9%, rgba(255, 178, 15, 0.3) 2.4%, rgba(255, 178, 15, 0.2) 5.8%, rgba(255, 178, 15, 0.1) 93%, rgba(255, 178, 15, 0.1) 96%);
-        border-radius: 4px;
-        padding: 0.1em 0.2em;
-        box-decoration-break: clone;
-        -webkit-box-decoration-break: clone;
-        position: relative;
-        color: #FFB20F;
-        font-weight: 500;
-    """
-    
-    # 상세 결과 표시
-    for result in sorted_results:
-        # 원본 텍스트에 모든 패턴의 하이라이트 적용
-        highlighted_text = result['text']
-        for pattern in result['patterns']:
-            pattern_text = pattern['pattern']
-            pattern_words = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text.lower()).split()
-            
-            for word in pattern_words:
-                if len(word) >= 2:  # 2글자 이상의 단어만 처리
-                    pattern_regex = re.compile(f'({re.escape(word)})', re.IGNORECASE)
-                    highlighted_text = pattern_regex.sub(
-                        fr'<span style="{highlight_style}">\1</span>',
-                        highlighted_text
-                    )
-        
-        # 위험도에 따른 확장 여부 설정
-        is_high_risk = result['score'] >= 70
-        with st.expander(
-            f"🔍 검출된 텍스트 (컬럼: {result['column']}, 위험도: {result['score']})",
-            expanded=is_high_risk
-        ):
-            # 원본 텍스트와 하이라이트된 버전 표시
-            st.markdown(f"""
-                <div style="padding: 15px; background-color: #2D2D2D; border-radius: 10px; margin-bottom: 10px;">
-                    <div style="font-weight: bold;">원본 텍스트 (하이라이트 표시):</div>
-                    <div style="padding: 10px; background-color: #3D3D3D; border-radius: 5px; margin-top: 5px; line-height: 1.6;">
-                        {highlighted_text}
-                    </div>
-                    <div style="margin-top: 10px;">
-                        <span style="font-weight: bold;">검출된 컬럼:</span> {result['column']}
-                    </div>
-                    <div style="margin-top: 5px;">
-                        <span style="font-weight: bold;">위험도 점수:</span> 
-                        <span style="{get_color_style(result['score'])}">{result['score']}</span>
-                    </div>
+    # 헤더 표시
+    st.markdown(f"""
+        <div class="analysis-header">
+            <h2>📊 분석 결과 요약</h2>
+            <div class="stats-container">
+                <div class="stats-card">
+                    <h3>검출된 패턴</h3>
+                    <div style="font-size: 2em;">{analysis_results['total_patterns']:,}</div>
                 </div>
-            """, unsafe_allow_html=True)
+                <div class="stats-card">
+                    <h3>평균 위험도</h3>
+                    <div style="font-size: 2em;">{avg_score:.1f}</div>
+                </div>
+                <div class="stats-card">
+                    <h3>고위험 항목</h3>
+                    <div style="font-size: 2em;">{high_risk_count}</div>
+                </div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # 결과 정렬 및 그룹화
+    sorted_results = sorted(
+        analysis_results['results'],
+        key=lambda x: (x['danger_level'], x['match_score']),
+        reverse=True
+    )
+    
+    # 위험도별 결과 표시
+    for severity in ['high', 'medium', 'low']:
+        if severity == 'high':
+            results = [r for r in sorted_results if r['danger_level'] >= 70]
+            title = "🚨 고위험 항목"
+            border_color = "#FF5252"
+        elif severity == 'medium':
+            results = [r for r in sorted_results if 30 <= r['danger_level'] < 70]
+            title = "⚠️ 주의 항목"
+            border_color = "#FFD700"
+        else:
+            results = [r for r in sorted_results if r['danger_level'] < 30]
+            title = "✅ 안전 항목"
+            border_color = "#00E676"
+        
+        if results:
+            st.markdown(f"### {title} ({len(results)}개)")
             
-            # 개별 패턴 분석 결과 표시
-            for pattern in result['patterns']:
-                danger_style = get_color_style(pattern['danger_level'])
-                thumbnail_html = ""
-                if 'thumbnail' in pattern:
-                    thumbnail_html = f'<img src="{pattern["thumbnail"]}" style="width:100%; max-width:480px; border-radius:10px; margin-top:10px;">'
-                
-                match_percentage = int(pattern.get('match_score', 0) * 100)
+            for result in results:
+                match_percentage = int(result['match_score'] * 100)
                 
                 st.markdown(f"""
-                    <div class="analysis-card" style="border-left: 4px solid {danger_style.split(':')[1].split(';')[0].strip()};">
-                        <h3>🔍 발견된 패턴: {pattern['pattern']}</h3>
-                        <p>📊 위험도: <span style="{danger_style}">{pattern['danger_level']}</span></p>
-                        <p>🎯 일치율: {match_percentage}%</p>
-                        <p>📝 분석: {pattern['analysis']}</p>
-                        {f'<p>🔗 <a href="{pattern["url"]}" target="_blank">참고 자료</a></p>' if pattern["url"] else ''}
-                        {thumbnail_html}
+                    <div class="result-card" style="border-left-color: {border_color}">
+                        <div class="info-grid">
+                            <div>📊 위험도: {get_danger_badge(result['danger_level'])}</div>
+                            <div>🎯 일치율: {match_percentage}%</div>
+                            <div>📑 컬럼: {escape_text(result['column'])}</div>
+                        </div>
+                        
+                        <div class="content-section">
+                            <div style="font-weight: bold;">원본 텍스트:</div>
+                            <div style="white-space: pre-wrap;">{escape_text(result['text'])}</div>
+                        </div>
+                        
+                        <div class="content-section">
+                            <div style="font-weight: bold;">🔍 매칭된 패턴:</div>
+                            <div>{escape_text(result['pattern'])}</div>
+                        </div>
+                        
+                        <div class="content-section alert-box" 
+                             style="background-color: rgba{border_color.replace('#', 'rgb')}, 0.1)">
+                            <div style="font-weight: bold;">📝 분석:</div>
+                            <div>{escape_text(result['analysis'])}</div>
+                        </div>
+                        
+                        {f'<div class="content-section"><a href="{escape_text(result["url"])}" target="_blank" style="color: {border_color}">🔗 참고 자료</a></div>' if result.get("url") else ''}
                     </div>
                 """, unsafe_allow_html=True)
+                
+    # 분석 완료 메시지
+    if sorted_results:
+        st.success(f"✨ 총 {analysis_results['total_patterns']}개의 패턴이 발견되었습니다.")
+    else:
+        st.info("👀 발견된 패턴이 없습니다.")
 
 # 추가 CSS 스타일
 st.markdown("""
