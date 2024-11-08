@@ -367,7 +367,7 @@ def get_youtube_thumbnail(url):
 
 # 3. 병렬 처리 최적화
 def find_matching_patterns(input_text, data, threshold=0.7):
-    """병렬 처리 최적화 버전"""
+    """병렬 처리 최적화 버전 - 중복 패턴 제거"""
     # 입력 텍스트 정제
     input_text = input_text.strip()
     if not input_text or input_text.isspace():
@@ -381,17 +381,32 @@ def find_matching_patterns(input_text, data, threshold=0.7):
     if len(input_words) < 2:
         return []
     
-    # 데이터 전처리 및 분류
     patterns = preprocess_patterns(data)
     input_data = (input_text_cleaned, input_words, input_chars)
     
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from functools import partial
     
-    # 결과를 저장할 리스트
     found_patterns = []
+    seen_patterns = set()  # 중복 패턴 체크를 위한 집합
     
-    # 병렬 처리 함수
+    def is_similar_pattern(pattern1, pattern2, similarity_threshold=0.9):
+        """두 패턴이 매우 유사한지 확인"""
+        text1 = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern1.lower())
+        text2 = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern2.lower())
+        
+        # 완전히 동일한 경우
+        if text1 == text2:
+            return True
+            
+        # 한 텍스트가 다른 텍스트에 포함되는 경우
+        if text1 in text2 or text2 in text1:
+            return True
+            
+        # 유사도 검사
+        similarity = difflib.SequenceMatcher(None, text1, text2).ratio()
+        return similarity >= similarity_threshold
+    
     def process_pattern_batch(patterns_batch):
         batch_results = []
         check_func = partial(check_pattern, input_data, threshold=threshold)
@@ -406,38 +421,49 @@ def find_matching_patterns(input_text, data, threshold=0.7):
     
     # 패턴 길이별 처리
     with ThreadPoolExecutor(max_workers=8) as executor:
-        # 짧은 패턴 먼저 처리
-        short_future = executor.submit(process_pattern_batch, patterns['short'])
+        futures = []
         
-        # 중간 길이 패턴을 chunk로 나누어 처리
+        # 짧은 패턴 처리
+        futures.append(executor.submit(process_pattern_batch, patterns['short']))
+        
+        # 중간 길이 패턴 처리
         chunk_size = max(1, len(patterns['medium']) // 4)
-        medium_futures = [
-            executor.submit(process_pattern_batch, chunk)
-            for chunk in [patterns['medium'][i:i + chunk_size] 
-                         for i in range(0, len(patterns['medium']), chunk_size)]
-        ]
+        for i in range(0, len(patterns['medium']), chunk_size):
+            chunk = patterns['medium'][i:i + chunk_size]
+            futures.append(executor.submit(process_pattern_batch, chunk))
         
-        # 긴 패턴도 chunk로 처리
+        # 긴 패턴 처리
         long_chunk_size = max(1, len(patterns['long']) // 4)
-        long_futures = [
-            executor.submit(process_pattern_batch, chunk)
-            for chunk in [patterns['long'][i:i + long_chunk_size] 
-                         for i in range(0, len(patterns['long']), long_chunk_size)]
-        ]
+        for i in range(0, len(patterns['long']), long_chunk_size):
+            chunk = patterns['long'][i:i + long_chunk_size]
+            futures.append(executor.submit(process_pattern_batch, chunk))
         
-        # 결과 수집
-        for future in [short_future] + medium_futures + long_futures:
+        # 결과 수집 및 중복 제거
+        for future in as_completed(futures):
             try:
                 results = future.result()
-                found_patterns.extend(results)
+                for result in results:
+                    # 중복 체크
+                    is_duplicate = False
+                    result_text = result['pattern']
+                    
+                    # 이미 처리된 패턴들과 비교
+                    for seen_pattern in seen_patterns:
+                        if is_similar_pattern(result_text, seen_pattern):
+                            is_duplicate = True
+                            break
+                    
+                    if not is_duplicate:
+                        found_patterns.append(result)
+                        seen_patterns.add(result_text)
             except Exception as e:
                 st.error(f"패턴 매칭 중 오류 발생: {str(e)}")
     
-    # 매치 점수로 정렬하고 상위 10개만 선택
+    # 매치 점수와 위험도로 정렬
     found_patterns.sort(key=lambda x: (x['match_score'], x['danger_level']), reverse=True)
-    found_patterns = found_patterns[:10]
+    found_patterns = found_patterns[:10]  # 상위 10개만 유지
     
-    # 유튜브 썸네일 처리 (상위 10개에 대해서만)
+    # 썸네일 처리
     for pattern in found_patterns:
         if pattern['url'] and 'youtube.com' in pattern['url']:
             thumbnail = get_youtube_thumbnail(pattern['url'])
