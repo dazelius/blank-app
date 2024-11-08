@@ -758,29 +758,22 @@ def analyze_file_contents(file_content, data):
             return None
     return None
 
+import html
+
 def display_file_analysis_results(analysis_results):
     """파일 분석 결과 표시 - 개선된 버전"""
     if not analysis_results or not analysis_results['results']:
         return
-    
-    import html
-    from datetime import datetime
-    
-    def escape_text(text):
-        """텍스트 HTML 이스케이프 처리"""
-        if isinstance(text, str):
-            return html.escape(text).replace('\n', '<br>')
-        return str(text)
-    
+
     def get_danger_badge(score):
         """위험도에 따른 배지 생성"""
         if score >= 70:
-            return f'<span class="danger-badge danger-badge--high">{score}</span>'
+            return st.badge("위험", bg_color="#FF5252", text_color="white")
         elif score >= 30:
-            return f'<span class="danger-badge danger-badge--medium">{score}</span>'
+            return st.badge("주의", bg_color="#FFD700", text_color="black")
         else:
-            return f'<span class="danger-badge danger-badge--low">{score}</span>'
-    
+            return st.badge("안전", bg_color="#00E676", text_color="black")
+
     # 통계 계산
     total_score = sum(result['danger_level'] for result in analysis_results['results'])
     avg_score = total_score / len(analysis_results['results']) if analysis_results['results'] else 0
@@ -792,61 +785,6 @@ def display_file_analysis_results(analysis_results):
         key=lambda x: (x['danger_level'], x['match_score']),
         reverse=True
     )
-
-    # CSS 스타일 추가
-    st.markdown("""
-    <style>
-        .danger-badge {
-            background-color: #FF5252;
-            color: white;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 0.9em;
-        }
-        .danger-badge--medium {
-            background-color: #FFD700;
-            color: black;
-        }
-        .danger-badge--low {
-            background-color: #00E676;
-            color: black;
-        }
-        .result-card {
-            background-color: #2D2D2D;
-            padding: 20px;
-            border-radius: 15px;
-            margin-bottom: 15px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-            border-left: 4px solid;
-        }
-        .info-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-            gap: 10px;
-            background-color: #3D3D3D;
-            padding: 15px;
-            border-radius: 10px;
-            margin: 10px 0;
-        }
-        .content-section {
-            background-color: #3D3D3D;
-            padding: 15px;
-            border-radius: 10px;
-            margin: 10px 0;
-        }
-        .highlight {
-            background: linear-gradient(104deg, rgba(255, 178, 15, 0.1), rgba(255, 178, 15, 0.2));
-            border-radius: 4px;
-            padding: 2px 5px;
-            color: #FFB20F;
-        }
-        .alert-box {
-            padding: 10px;
-            border-radius: 8px;
-            margin: 10px 0;
-        }
-    </style>
-    """, unsafe_allow_html=True)
 
     # 위험도별 결과 표시
     for severity in ['high', 'medium', 'low']:
@@ -862,41 +800,41 @@ def display_file_analysis_results(analysis_results):
             results = [r for r in sorted_results if r['danger_level'] < 30]
             title = "✅ 안전 항목"
             border_color = "#00E676"
-        
+
         if results:
-            st.markdown(f"### {title} ({len(results)}개)")
-            
+            st.subheader(f"{title} ({len(results)}개)")
+
             for result in results:
                 match_percentage = int(result['match_score'] * 100)
-                
-                st.markdown(f"""
-                <div class="result-card" style="border-left-color: {border_color}">
-                    <div class="info-grid">
-                        <div>📊 위험도: {get_danger_badge(result['danger_level'])}</div>
-                        <div>🎯 일치율: {match_percentage}%</div>
-                        <div>📑 컬럼: {escape_text(result['column'])}</div>
-                    </div>
-                    
-                    <div class="content-section">
-                        <div style="font-weight: bold;">원본 텍스트:</div>
-                        <div style="white-space: pre-wrap;">{escape_text(result['text'])}</div>
-                    </div>
-                    
-                    <div class="content-section">
-                        <div style="font-weight: bold;">🔍 매칭된 패턴:</div>
-                        <div>{escape_text(result['pattern'])}</div>
-                    </div>
-                    
-                    <div class="content-section alert-box" 
-                         style="background-color: rgba{border_color.replace('#', 'rgb')}, 0.1)">
-                        <div style="font-weight: bold;">📝 분석:</div>
-                        <div>{escape_text(result['analysis'])}</div>
-                    </div>
-                    
-                    {f'<div class="content-section"><a href="{escape_text(result["url"])}" target="_blank" style="color: {border_color}">🔗 참고 자료</a></div>' if result.get("url") else ''}
-                </div>
-                """, unsafe_allow_html=True)
-    
+
+                with st.container():
+                    with st.container():
+                        cols = st.columns([2, 1, 1])
+                        with cols[0]:
+                            st.markdown(f"**위험도:** {get_danger_badge(result['danger_level'])}")
+                        with cols[1]:
+                            st.markdown(f"**일치율:** {match_percentage}%")
+                        with cols[2]:
+                            st.markdown(f"**컬럼:** {html.escape(result['column'])}")
+
+                    with st.container():
+                        st.markdown("**원본 텍스트:**")
+                        st.markdown(f"<div style='white-space: pre-wrap; font-family: \"Noto Sans KR\", sans-serif;'>{html.escape(result['text'])}</div>", unsafe_allow_html=True)
+
+                    with st.container():
+                        st.markdown("**매칭된 패턴:**")
+                        st.markdown(html.escape(result['pattern']))
+
+                    with st.container():
+                        st.markdown("**분석:**")
+                        st.markdown(f"<div class='alert-box' style='background-color: rgba{border_color.replace('#', 'rgb')}, 0.1);'>{html.escape(result['analysis'])}</div>", unsafe_allow_html=True)
+
+                    if result.get("url"):
+                        with st.container():
+                            st.markdown(f"**[참고 자료]({html.escape(result['url'])})**")
+
+                st.markdown("---")
+
     # 분석 완료 메시지
     if sorted_results:
         st.success(f"✨ 총 {analysis_results['total_patterns']}개의 패턴이 발견되었습니다.")
