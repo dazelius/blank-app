@@ -762,8 +762,26 @@ def display_file_analysis_results(analysis_results):
     """파일 분석 결과 표시 - 수정된 버전"""
     if not analysis_results or not analysis_results['results']:
         return
+        
+    def get_color_style(score):
+        """위험도 점수에 따른 색상 스타일 반환"""
+        if score >= 70:
+            return "color: #FF5252; font-weight: bold;"  # 빨간색
+        elif score >= 30:
+            return "color: #FFD700; font-weight: bold;"  # 노란색
+        else:
+            return "color: #00E676; font-weight: bold;"  # 초록색
     
-    # Calculate statistics (수정된 부분)
+    def get_danger_level_class(score):
+        """위험도 점수에 따른 CSS 클래스 반환"""
+        if score < 30:
+            return "danger-level-low"
+        elif score < 70:
+            return "danger-level-medium"
+        else:
+            return "danger-level-high"
+    
+    # Calculate statistics
     total_score = sum(result['danger_level'] for result in analysis_results['results'])
     avg_score = total_score / len(analysis_results['results']) if analysis_results['results'] else 0
     
@@ -846,7 +864,7 @@ def display_file_analysis_results(analysis_results):
             </div>
         """, unsafe_allow_html=True)
 
-    # 추가 스타일
+    # 스타일 추가
     st.markdown("""
         <style>
             .pattern-metadata {
@@ -865,6 +883,18 @@ def display_file_analysis_results(analysis_results):
             }
             .analysis-content {
                 margin: 10px 0;
+            }
+            .danger-level-low {
+                color: #00E676;
+                font-weight: bold;
+            }
+            .danger-level-medium {
+                color: #FFD700;
+                font-weight: bold;
+            }
+            .danger-level-high {
+                color: #FF5252;
+                font-weight: bold;
             }
         </style>
     """, unsafe_allow_html=True)
