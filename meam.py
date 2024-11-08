@@ -907,39 +907,33 @@ def display_file_analysis_results(analysis_results):
             for result in results:
                 match_percentage = int(result['match_score'] * 100)
                 
-            # RGB로 변환하는 함수 추가
-            def hex_to_rgb(hex_color):
-                hex_color = hex_color.lstrip('#')
-                return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-
-            # 기존 코드 수정
-            st.markdown(f"""
-                <div class="result-card" style="border-left-color: {border_color}">
-                    <div class="info-grid">
-                        <div>📊 위험도: {get_danger_badge(result['danger_level'])}</div>
-                        <div>🎯 일치율: {match_percentage}%</div>
-                        <div>📑 컬럼: {escape_text(result['column'])}</div>
+                st.markdown(f"""
+                    <div class="result-card" style="border-left-color: {border_color}">
+                        <div class="info-grid">
+                            <div>📊 위험도: {get_danger_badge(result['danger_level'])}</div>
+                            <div>🎯 일치율: {match_percentage}%</div>
+                            <div>📑 컬럼: {escape_text(result['column'])}</div>
+                        </div>
+                        
+                        <div class="content-section">
+                            <div style="font-weight: bold;">원본 텍스트:</div>
+                            <div style="white-space: pre-wrap;">{escape_text(result['text'])}</div>
+                        </div>
+                        
+                        <div class="content-section">
+                            <div style="font-weight: bold;">🔍 매칭된 패턴:</div>
+                            <div>{escape_text(result['pattern'])}</div>
+                        </div>
+                        
+                        <div class="content-section alert-box" 
+                             style="background-color: rgba{border_color.replace('#', 'rgb')}, 0.1)">
+                            <div style="font-weight: bold;">📝 분석:</div>
+                            <div>{escape_text(result['analysis'])}</div>
+                        </div>
+                        
+                        {f'<div class="content-section"><a href="{escape_text(result["url"])}" target="_blank" style="color: {border_color}">🔗 참고 자료</a></div>' if result.get("url") else ''}
                     </div>
-                    
-                    <div class="content-section">
-                        <div style="font-weight: bold;">원본 텍스트:</div>
-                        <div style="white-space: pre-wrap;">{escape_text(result['text'])}</div>
-                    </div>
-                    
-                    <div class="content-section">
-                        <div style="font-weight: bold;">🔍 매칭된 패턴:</div>
-                        <div>{escape_text(result['pattern'])}</div>
-                    </div>
-                    
-                    <div class="content-section alert-box" 
-                        style="background-color: rgba{hex_to_rgb(border_color)}, 0.1)">
-                        <div style="font-weight: bold;">📝 분석:</div>
-                        <div>{escape_text(result['analysis'])}</div>
-                    </div>
-                    
-                    {f'<div class="content-section"><a href="{escape_text(result["url"])}" target="_blank" style="color: {border_color}">🔗 참고 자료</a></div>' if result.get("url") else ''}
-                </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
                 
     # 분석 완료 메시지
     if sorted_results:
