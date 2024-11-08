@@ -581,10 +581,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-def analyze_file_contents(file_content, data):
-    """파일 내용 분석"""
-    results = []
-    
+def analyze_file_contents(file_content, data, batch_size=100):
+    """파일 내용 분석 - 최적화 버전"""
     if file_content is not None:
         try:
             # 파일 확장자 확인
@@ -597,38 +595,73 @@ def analyze_file_contents(file_content, data):
             else:
                 st.error("지원하지 않는 파일 형식입니다. CSV 또는 Excel 파일만 지원합니다.")
                 return None
-            
-            # 모든 텍스트 컬럼 분석
+
+            # 텍스트 컬럼만 선택
             text_columns = df.select_dtypes(include=['object']).columns
             total_patterns_found = 0
             all_results = []
             
-            # 프로그레스 바 생성
+            # 프로그레스 바 초기화
             progress_bar = st.progress(0)
             progress_text = st.empty()
             
-            for idx, col in enumerate(text_columns):
-                for text in df[col].dropna():
-                    if isinstance(text, str):  # 문자열인 경우만 분석
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            
+            def process_batch(batch_texts, column):
+                """텍스트 배치 처리"""
+                batch_results = []
+                for text in batch_texts:
+                    if isinstance(text, str) and text.strip():
                         patterns = find_matching_patterns(text, data)
                         if patterns:
                             score = calculate_danger_score(patterns)
-                            all_results.append({
+                            batch_results.append({
                                 'text': text,
-                                'column': col,
+                                'column': column,
                                 'patterns': patterns,
                                 'score': score
                             })
-                            total_patterns_found += len(patterns)
+                return batch_results
+            
+            # 전체 작업량 계산
+            total_rows = sum(len(df[col].dropna()) for col in text_columns)
+            processed_rows = 0
+            
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = []
                 
-                # 진행률 업데이트
-                progress = (idx + 1) / len(text_columns)
-                progress_bar.progress(progress)
-                progress_text.text(f'분석 진행 중... {int(progress * 100)}%')
+                # 컬럼별 처리
+                for col in text_columns:
+                    # Null이 아닌 텍스트만 선택
+                    texts = df[col].dropna().tolist()
+                    
+                    # 배치 단위로 분할
+                    for i in range(0, len(texts), batch_size):
+                        batch = texts[i:i + batch_size]
+                        future = executor.submit(process_batch, batch, col)
+                        futures.append((future, len(batch)))
+                
+                # 결과 수집
+                for future, batch_length in futures:
+                    try:
+                        results = future.result()
+                        all_results.extend(results)
+                        total_patterns_found += sum(len(r['patterns']) for r in results)
+                        
+                        # 진행률 업데이트
+                        processed_rows += batch_length
+                        progress = processed_rows / total_rows
+                        progress_bar.progress(progress)
+                        progress_text.text(f'분석 진행 중... {int(progress * 100)}%')
+                    except Exception as e:
+                        st.error(f"배치 처리 중 오류 발생: {str(e)}")
             
             # 프로그레스 바와 텍스트 제거
             progress_bar.empty()
             progress_text.empty()
+            
+            # 위험도 순으로 정렬
+            all_results.sort(key=lambda x: x['score'], reverse=True)
             
             return {
                 'total_patterns': total_patterns_found,
