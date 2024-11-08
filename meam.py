@@ -172,6 +172,83 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+
+# 변경 1: 데이터 전처리 캐시 함수 추가
+@st.cache_data(ttl=3600)  # 1시간 캐시
+def preprocess_patterns(data):
+    """패턴 데이터 전처리 및 캐싱"""
+    processed_patterns = []
+    for record in data:
+        pattern_text = record.get('text', '').lower()
+        pattern_text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text)
+        pattern_words = set(pattern_text_cleaned.split())
+        pattern_chars = set(pattern_text_cleaned)
+        
+        processed_patterns.append({
+            'original': record,
+            'cleaned_text': pattern_text_cleaned,
+            'words': pattern_words,
+            'chars': pattern_chars,
+            'word_count': len(pattern_words)
+        })
+    return processed_patterns
+
+# 변경 2: 개별 패턴 매칭 함수
+def check_pattern(input_data, pattern_data, threshold=0.7):
+    """단일 패턴 매칭 검사"""
+    input_text_cleaned, input_words, input_chars = input_data
+    
+    # 1. 빠른 필터링: 공통 문자가 없으면 건너뛰기
+    if not (input_chars & pattern_data['chars']):
+        return None
+    
+    # 2. 공통 단어 확인
+    common_words = input_words & pattern_data['words']
+    if not common_words:
+        return None
+    
+    # 3. 전체 문장 유사도 검사
+    word_match_ratio = len(common_words) / pattern_data['word_count']
+    if word_match_ratio < threshold * 0.5:
+        return None
+        
+    full_text_similarity = difflib.SequenceMatcher(None, input_text_cleaned, pattern_data['cleaned_text']).ratio()
+    
+    # 4. 부분 문자열 포함 여부 검사 (짧은 패턴에 대해서만)
+    contains_pattern = False
+    if len(pattern_data['cleaned_text']) <= 10:
+        contains_pattern = pattern_data['cleaned_text'] in input_text_cleaned
+    
+    if (full_text_similarity >= threshold or 
+        contains_pattern or 
+        word_match_ratio >= threshold):
+        
+        final_similarity = max(
+            full_text_similarity,
+            1.0 if contains_pattern else 0.0,
+            word_match_ratio
+        )
+        
+        record = pattern_data['original']
+        # dangerlevel 필드의 안전한 형변환 처리
+        try:
+            danger_level = int(record.get('dangerlevel', 0))
+        except (ValueError, TypeError):
+            danger_level = 0
+            
+        return {
+            'pattern': record['text'],
+            'analysis': record['output'],
+            'danger_level': danger_level,
+            'url': record.get('url', ''),
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'match_score': final_similarity
+        }
+    
+    return None
+
+
+
 @st.cache_data(ttl=300)
 def load_sheet_data():
     """Google Sheets 데이터 로드"""
@@ -276,92 +353,48 @@ def get_youtube_thumbnail(url):
         return f"https://img.youtube.com/vi/{video_id.group(1)}/hqdefault.jpg"
     return None
 
-# find_matching_patterns 함수 개선
+# 변경 3: 병렬 처리를 적용한 메인 매칭 함수
 def find_matching_patterns(input_text, data, threshold=0.7):
+    """병렬 처리를 적용한 패턴 매칭"""
     if not input_text.strip():
         return []
-        
-    found_patterns = []
+    
+    # 입력 텍스트 전처리
     input_text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', input_text.lower())
-    input_words = input_text_cleaned.split()
-    matched_patterns = set()
+    input_words = set(input_text_cleaned.split())
+    input_chars = set(input_text_cleaned)
     
-    for idx, record in enumerate(data):
-        pattern_text = record.get('text', '').lower()
-        pattern_text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text)
-        pattern_words = pattern_text_cleaned.split()
-        
-        if not pattern_words:  # 빈 패턴 무시
-            continue
-            
-        # 1. 전체 문장 유사도 검사
-        full_text_similarity = difflib.SequenceMatcher(None, input_text_cleaned, pattern_text_cleaned).ratio()
-        
-        # 2. 부분 문자열 포함 여부 검사
-        contains_pattern = pattern_text_cleaned in input_text_cleaned
-        
-        # 3. 개별 단어 매칭 검사
-        word_match_count = 0
-        total_words = len(pattern_words)
-        matched_words = set()
-        
-        for pattern_word in pattern_words:
-            if len(pattern_word) >= 2:  # 2글자 이상의 단어만 검사
-                for input_word in input_words:
-                    if len(input_word) >= 2:
-                        # 정확한 단어 매칭
-                        if pattern_word == input_word:
-                            word_match_count += 1
-                            matched_words.add(pattern_word)
-                            break
-                        # 유사도 기반 단어 매칭
-                        elif abs(len(input_word) - len(pattern_word)) <= 2:
-                            word_similarity = difflib.SequenceMatcher(None, pattern_word, input_word).ratio()
-                            if word_similarity >= 0.8:  # 단어 수준에서는 더 높은 정확도 요구
-                                word_match_count += word_similarity
-                                matched_words.add(pattern_word)
-                                break
-        
-        word_match_ratio = word_match_count / total_words if total_words > 0 else 0
-        
-        if (full_text_similarity >= threshold or 
-            contains_pattern or 
-            word_match_ratio >= threshold):
-            
-            final_similarity = max(
-                full_text_similarity,
-                1.0 if contains_pattern else 0.0,
-                word_match_ratio
-            )
-            
-            matched_patterns.add((idx, final_similarity))
+    if len(input_words) < 2:  # 입력이 너무 짧으면 건너뛰기
+        return []
     
-    # 매칭된 패턴 정보 수집
-    for idx, similarity in matched_patterns:
-        record = data[idx]
-        
-        # dangerlevel 필드의 안전한 형변환 처리
-        try:
-            danger_level = int(record.get('dangerlevel', 0))
-        except (ValueError, TypeError):
-            danger_level = 0  # 변환 실패시 기본값 0 사용
-            
-        pattern_info = {
-            'pattern': record['text'],
-            'analysis': record['output'],
-            'danger_level': danger_level,  # 안전하게 처리된 danger_level 사용
-            'url': record.get('url', ''),
-            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'match_score': similarity,
-            'original_text': input_text
+    # 데이터 전처리
+    processed_patterns = preprocess_patterns(data)
+    input_data = (input_text_cleaned, input_words, input_chars)
+    
+    # 병렬 처리 실행
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
+    found_patterns = []
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        # 작업 제출
+        future_to_pattern = {
+            executor.submit(check_pattern, input_data, pattern, threshold): pattern
+            for pattern in processed_patterns
         }
         
-        # 썸네일 추가
-        thumbnail = get_youtube_thumbnail(pattern_info['url'])
-        if thumbnail:
-            pattern_info['thumbnail'] = thumbnail
-        
-        found_patterns.append(pattern_info)
+        # 결과 수집
+        for future in as_completed(future_to_pattern):
+            try:
+                result = future.result()
+                if result:
+                    result['original_text'] = input_text
+                    if result['url'] and 'youtube.com' in result['url']:
+                        thumbnail = get_youtube_thumbnail(result['url'])
+                        if thumbnail:
+                            result['thumbnail'] = thumbnail
+                    found_patterns.append(result)
+            except Exception as e:
+                st.error(f"패턴 매칭 중 오류 발생: {str(e)}")
     
     # 매치 점수로 정렬
     found_patterns.sort(key=lambda x: x['match_score'], reverse=True)
