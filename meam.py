@@ -277,7 +277,7 @@ def get_youtube_thumbnail(url):
     return None
 
 # find_matching_patterns 함수 개선
-def find_matching_patterns(input_text, data, threshold=0.7):  # threshold를 0.7로 조정
+def find_matching_patterns(input_text, data, threshold=0.7):
     if not input_text.strip():
         return []
         
@@ -324,15 +324,10 @@ def find_matching_patterns(input_text, data, threshold=0.7):  # threshold를 0.7
         
         word_match_ratio = word_match_count / total_words if total_words > 0 else 0
         
-        # 매칭 조건 완화 및 통합
-        # 1. 전체 문장 유사도가 높은 경우
-        # 2. 패턴이 입력 텍스트에 포함된 경우
-        # 3. 개별 단어 매칭 비율이 높은 경우
         if (full_text_similarity >= threshold or 
             contains_pattern or 
             word_match_ratio >= threshold):
             
-            # 최종 유사도 점수 계산 (각 요소를 가중치를 주어 반영)
             final_similarity = max(
                 full_text_similarity,
                 1.0 if contains_pattern else 0.0,
@@ -344,14 +339,21 @@ def find_matching_patterns(input_text, data, threshold=0.7):  # threshold를 0.7
     # 매칭된 패턴 정보 수집
     for idx, similarity in matched_patterns:
         record = data[idx]
+        
+        # dangerlevel 필드의 안전한 형변환 처리
+        try:
+            danger_level = int(record.get('dangerlevel', 0))
+        except (ValueError, TypeError):
+            danger_level = 0  # 변환 실패시 기본값 0 사용
+            
         pattern_info = {
             'pattern': record['text'],
             'analysis': record['output'],
-            'danger_level': int(record.get('dangerlevel', 0)),
+            'danger_level': danger_level,  # 안전하게 처리된 danger_level 사용
             'url': record.get('url', ''),
             'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             'match_score': similarity,
-            'original_text': input_text  # 원본 텍스트 저장
+            'original_text': input_text
         }
         
         # 썸네일 추가
