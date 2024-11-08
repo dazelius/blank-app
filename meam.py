@@ -758,10 +758,6 @@ def analyze_file_contents(file_content, data):
             return None
     return None
 
-import html
-
-import html
-
 import streamlit as st
 import html
 
@@ -817,30 +813,30 @@ def display_file_analysis_results(analysis_results):
                         else:
                             danger_level_text = "안전"
                             danger_level_color = "#00E676"
-                        st.markdown(f"<p><strong>위험도:</strong> <span style='color:{danger_level_color}; font-weight:bold;'>{danger_level_text}</span></p>", unsafe_allow_html=True)
+                        st.markdown(f"<p style='color:#FFFFFF;'><strong>위험도:</strong> <span style='color:{danger_level_color}; font-weight:bold;'>{danger_level_text}</span></p>", unsafe_allow_html=True)
                     with cols[1]:
-                        st.markdown(f"<p><strong>일치율:</strong> {match_percentage}%</p>", unsafe_allow_html=True)
+                        st.markdown(f"<p style='color:#FFFFFF;'><strong>일치율:</strong> {match_percentage}%</p>", unsafe_allow_html=True)
                     with cols[2]:
-                        st.markdown(f"<p><strong>컬럼:</strong> {html.escape(result['column'])}</p>", unsafe_allow_html=True)
+                        st.markdown(f"<p style='color:#FFFFFF;'><strong>컬럼:</strong> {html.escape(result['column'])}</p>", unsafe_allow_html=True)
 
                     # 원본 텍스트 섹션
-                    st.markdown("<div style='font-weight:bold; margin-top: 10px;'>원본 텍스트:</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div style='white-space: pre-wrap; font-family: \"Noto Sans KR\", sans-serif; background-color: #f9f9f9; padding: 10px; border-radius: 5px;'>{html.escape(result['text'])}</div>", unsafe_allow_html=True)
+                    st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>원본 텍스트:</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='white-space: pre-wrap; font-family: \"Noto Sans KR\", sans-serif; background-color: #333333; padding: 10px; border-radius: 5px; color: #FFFFFF;'>{html.escape(result['text'])}</div>", unsafe_allow_html=True)
 
                     # 매칭된 패턴 섹션
-                    st.markdown("<div style='font-weight:bold; margin-top: 10px;'>매칭된 패턴:</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div style='background-color: #f1f1f1; padding: 8px; border-radius: 5px;'>{html.escape(result['pattern'])}</div>", unsafe_allow_html=True)
+                    st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>매칭된 패턴:</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='background-color: #444444; padding: 8px; border-radius: 5px; color: #FFFFFF;'>{html.escape(result['pattern'])}</div>", unsafe_allow_html=True)
 
                     # 분석 섹션
-                    st.markdown("<div style='font-weight:bold; margin-top: 10px;'>분석:</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div style='background-color: rgba{tuple(int(border_color[i:i+2], 16) for i in (1, 3, 5))}, 0.1); padding: 10px; border-radius: 5px;'>{html.escape(result['analysis'])}</div>", unsafe_allow_html=True)
+                    st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>분석:</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='background-color: rgba{tuple(int(border_color[i:i+2], 16) for i in (1, 3, 5))}, 0.1); padding: 10px; border-radius: 5px; color: #FFFFFF;'>{html.escape(result['analysis'])}</div>", unsafe_allow_html=True)
 
                     # 참고 자료 링크
                     if result.get("url"):
                         st.markdown(f"<p><strong>🔗 <a href='{html.escape(result['url'])}' target='_blank' style='color:{border_color};'>참고 자료</a></strong></p>", unsafe_allow_html=True)
 
                 # 구분선
-                st.markdown("<hr style='border: none; height: 1px; background-color: #e0e0e0;'>", unsafe_allow_html=True)
+                st.markdown("<hr style='border: none; height: 1px; background-color: #555555;'>", unsafe_allow_html=True)
 
     # 분석 완료 메시지
     if sorted_results:
