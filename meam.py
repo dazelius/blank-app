@@ -759,18 +759,26 @@ def analyze_file_contents(file_content, data):
     return None
 
 def display_file_analysis_results(analysis_results):
-    """파일 분석 결과 표시 - 수정된 버전"""
+    """파일 분석 결과 표시 - HTML 이스케이프 처리 추가"""
     if not analysis_results or not analysis_results['results']:
         return
         
+    import html  # HTML 이스케이프를 위한 모듈 추가
+    
+    def escape_text(text):
+        """텍스트 HTML 이스케이프 처리"""
+        if isinstance(text, str):
+            return html.escape(text)
+        return str(text)
+    
     def get_color_style(score):
         """위험도 점수에 따른 색상 스타일 반환"""
         if score >= 70:
-            return "color: #FF5252; font-weight: bold;"  # 빨간색
+            return "color: #FF5252; font-weight: bold;"
         elif score >= 30:
-            return "color: #FFD700; font-weight: bold;"  # 노란색
+            return "color: #FFD700; font-weight: bold;"
         else:
-            return "color: #00E676; font-weight: bold;"  # 초록색
+            return "color: #00E676; font-weight: bold;"
     
     def get_danger_level_class(score):
         """위험도 점수에 따른 CSS 클래스 반환"""
@@ -785,119 +793,99 @@ def display_file_analysis_results(analysis_results):
     total_score = sum(result['danger_level'] for result in analysis_results['results'])
     avg_score = total_score / len(analysis_results['results']) if analysis_results['results'] else 0
     
-    st.markdown("""
-        <div class="database-title">
-            📊 파일 분석 결과
-        </div>
-        """, unsafe_allow_html=True)
-    
     # 결과를 위험도 순으로 정렬
     sorted_results = sorted(analysis_results['results'], 
                           key=lambda x: (x['danger_level'], x['match_score']), 
                           reverse=True)
     
+    # 스타일 정의
+    st.markdown("""
+        <style>
+        .results-container {
+            margin-top: 20px;
+        }
+        .stats-card {
+            background-color: #2D2D2D;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .result-card {
+            background-color: #2D2D2D;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+        }
+        .metadata-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            background-color: #3D3D3D;
+            padding: 10px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        .text-content {
+            background-color: #3D3D3D;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        .danger-level-low { color: #00E676; font-weight: bold; }
+        .danger-level-medium { color: #FFD700; font-weight: bold; }
+        .danger-level-high { color: #FF5252; font-weight: bold; }
+        </style>
+    """, unsafe_allow_html=True)
+    
     # 통계 표시
     col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown(f"""
-            <div style="text-align: center; padding: 10px; background-color: #2D2D2D; border-radius: 10px;">
-                <div style="font-size: 1.2em;">분석된 패턴 수</div>
-                <div style="font-size: 2em; {get_color_style(0)}">{analysis_results['total_patterns']}</div>
-            </div>
-        """, unsafe_allow_html=True)
-    with col2:
-        st.markdown(f"""
-            <div style="text-align: center; padding: 10px; background-color: #2D2D2D; border-radius: 10px;">
-                <div style="font-size: 1.2em;">평균 위험도</div>
-                <div style="font-size: 2em; {get_color_style(avg_score)}">{avg_score:.1f}</div>
-            </div>
-        """, unsafe_allow_html=True)
-    with col3:
-        st.markdown(f"""
-            <div style="text-align: center; padding: 10px; background-color: #2D2D2D; border-radius: 10px;">
-                <div style="font-size: 1.2em;">총 위험도</div>
-                <div style="font-size: 2em; {get_color_style(total_score)}">{total_score}</div>
-            </div>
-        """, unsafe_allow_html=True)
-
-    # 개별 결과 표시
+    stats = [
+        ("분석된 패턴 수", analysis_results['total_patterns'], 0),
+        ("평균 위험도", f"{avg_score:.1f}", avg_score),
+        ("총 위험도", total_score, total_score)
+    ]
+    
+    for col, (label, value, score) in zip([col1, col2, col3], stats):
+        with col:
+            st.markdown(f"""
+                <div class="stats-card">
+                    <div style="font-size: 1.2em;">{label}</div>
+                    <div style="font-size: 2em; {get_color_style(score)}">{value}</div>
+                </div>
+            """, unsafe_allow_html=True)
+    
+    # 결과 표시
     for result in sorted_results:
-        # 일치율 계산
         match_percentage = int(result['match_score'] * 100)
         danger_level_class = get_danger_level_class(result['danger_level'])
         
         st.markdown(f"""
-            <div class="analysis-card">
-                <div class="pattern-metadata">
-                    <div class="metadata-item">
-                        <span>📊 위험도:</span>
-                        <span class="{danger_level_class}">{result['danger_level']}</span>
-                    </div>
-                    <div class="metadata-item">
-                        <span>🎯 일치율:</span>
-                        <span>{match_percentage}%</span>
-                    </div>
-                    <div class="metadata-item">
-                        <span>📑 컬럼:</span>
-                        <span>{result['column']}</span>
-                    </div>
+            <div class="result-card">
+                <div class="metadata-grid">
+                    <div>📊 위험도: <span class="{danger_level_class}">{result['danger_level']}</span></div>
+                    <div>🎯 일치율: {match_percentage}%</div>
+                    <div>📑 컬럼: {escape_text(result['column'])}</div>
                 </div>
                 
-                <div class="analysis-content">
+                <div class="text-content">
                     <div style="font-weight: bold;">원본 텍스트:</div>
-                    <div style="padding: 10px; background-color: #3D3D3D; border-radius: 5px; margin-top: 5px;">
-                        {result['text']}
-                    </div>
+                    <div>{escape_text(result['text'])}</div>
                 </div>
                 
-                <div class="analysis-content">
+                <div class="text-content">
                     <div style="font-weight: bold;">🔍 매칭된 패턴:</div>
-                    <div>{result['pattern']}</div>
+                    <div>{escape_text(result['pattern'])}</div>
                 </div>
                 
-                <div class="analysis-content">
+                <div class="text-content">
                     <div style="font-weight: bold;">📝 분석:</div>
-                    <div>{result['analysis']}</div>
+                    <div>{escape_text(result['analysis'])}</div>
                 </div>
                 
-                {f'<p>🔗 <a href="{result["url"]}" target="_blank">참고 자료</a></p>' if result.get("url") else ''}
+                {f'<div class="text-content"><a href="{escape_text(result["url"])}" target="_blank">🔗 참고 자료</a></div>' if result.get("url") else ''}
             </div>
         """, unsafe_allow_html=True)
-
-    # 스타일 추가
-    st.markdown("""
-        <style>
-            .pattern-metadata {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 10px;
-                margin: 15px 0;
-                background-color: #2A2A2A;
-                padding: 10px;
-                border-radius: 8px;
-            }
-            .metadata-item {
-                display: flex;
-                align-items: center;
-                gap: 5px;
-            }
-            .analysis-content {
-                margin: 10px 0;
-            }
-            .danger-level-low {
-                color: #00E676;
-                font-weight: bold;
-            }
-            .danger-level-medium {
-                color: #FFD700;
-                font-weight: bold;
-            }
-            .danger-level-high {
-                color: #FF5252;
-                font-weight: bold;
-            }
-        </style>
-    """, unsafe_allow_html=True)
     
     # 위험도에 따른 색상 정의
     def get_color_style(score):
