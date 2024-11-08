@@ -765,15 +765,6 @@ def display_file_analysis_results(analysis_results):
     if not analysis_results or not analysis_results['results']:
         return
 
-    def get_danger_badge(score):
-        """위험도에 따른 배지 생성"""
-        if score >= 70:
-            return st.badge("위험", bg_color="#FF5252", text_color="white")
-        elif score >= 30:
-            return st.badge("주의", bg_color="#FFD700", text_color="black")
-        else:
-            return st.badge("안전", bg_color="#00E676", text_color="black")
-
     # 통계 계산
     total_score = sum(result['danger_level'] for result in analysis_results['results'])
     avg_score = total_score / len(analysis_results['results']) if analysis_results['results'] else 0
@@ -811,7 +802,16 @@ def display_file_analysis_results(analysis_results):
                     with st.container():
                         cols = st.columns([2, 1, 1])
                         with cols[0]:
-                            st.markdown(f"**위험도:** {get_danger_badge(result['danger_level'])}")
+                            if result['danger_level'] >= 70:
+                                danger_level_text = "위험"
+                                danger_level_color = "#FF5252"
+                            elif result['danger_level'] >= 30:
+                                danger_level_text = "주의"
+                                danger_level_color = "#FFD700"
+                            else:
+                                danger_level_text = "안전"
+                                danger_level_color = "#00E676"
+                            st.markdown(f"**위험도:** <span style='color:{danger_level_color};font-weight:bold;'>{danger_level_text}</span>", unsafe_allow_html=True)
                         with cols[1]:
                             st.markdown(f"**일치율:** {match_percentage}%")
                         with cols[2]:
