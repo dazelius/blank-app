@@ -1522,17 +1522,11 @@ def main():
                             progress_bar.progress(progress)
                             progress_text.text(f"파일 분석 중... ({idx + 1}/{len(uploaded_files)}): {file.name}")
                             
-                        with st.spinner(f'🔄 {file.name} 분석 중...'):
-                            analysis_result = analyze_file_contents(file, data)
-                            if analysis_result and analysis_result['total_patterns'] > 0:
-                                # 각 결과에 오탈자/띄어쓰기 정보 추가
-                                for result in analysis_result['results']:
-                                    spelling_errors, spacing_errors = check_text_errors(result['text'])
-                                    result['spelling_errors'] = spelling_errors
-                                    result['spacing_errors'] = spacing_errors
-                                
-                                all_results.extend(analysis_result['results'])
-                                total_patterns += analysis_result['total_patterns']
+                            with st.spinner(f'🔄 {file.name} 분석 중...'):
+                                analysis_result = analyze_file_contents(file, data)
+                                if analysis_result and analysis_result['total_patterns'] > 0:
+                                    all_results.extend(analysis_result['results'])
+                                    total_patterns += analysis_result['total_patterns']
                         
                         progress_bar.empty()
                         progress_text.empty()
