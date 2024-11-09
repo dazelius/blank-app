@@ -434,7 +434,7 @@ def get_youtube_thumbnail(url):
 
 # 3. 병렬 처리 최적화
 def find_matching_patterns(input_text, data, threshold=0.7):
-    """텍스트 패턴 매칭 - 최적화 버전"""
+    """텍스트 패턴 매칭 - 오탈자 및 띄어쓰기 검사 추가"""
     if not data or not input_text:
         return []
         
@@ -443,15 +443,35 @@ def find_matching_patterns(input_text, data, threshold=0.7):
         return []
     
     try:
-        # 입력 텍스트 전처리
+        # 한글 자모음 분리 함수
+        def decompose_hangul(text):
+            result = []
+            for char in text:
+                if '가' <= char <= '힣':
+                    # 한글 유니코드 분해
+                    code = ord(char) - 0xAC00
+                    jong = code % 28
+                    jung = ((code - jong) // 28) % 21
+                    cho = ((code - jong) // 28) // 21
+                    result.append((cho, jung, jong))
+                else:
+                    result.append(char)
+            return result
+
+        # 자모음 유사도 계산
+        def jamo_similarity(char1, char2):
+            if isinstance(char1, tuple) and isinstance(char2, tuple):
+                # 초성, 중성, 종성 각각 비교
+                matches = sum(1 for i in range(3) if char1[i] == char2[i])
+                return matches / 3
+            return 1.0 if char1 == char2 else 0.0
+
+        # 텍스트 전처리
         input_text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', input_text.lower())
+        input_jamos = decompose_hangul(input_text_cleaned)
         input_words = set(w for w in input_text_cleaned.split() if w.strip())
-        input_chars = set(input_text_cleaned)
         
-        if len(input_words) < 1:  # 최소 단어 수 체크 완화
-            return []
-            
-        # 패턴 데이터 전처리
+        # 패턴 매칭 결과 저장
         found_patterns = []
         
         for pattern in data:
@@ -459,54 +479,82 @@ def find_matching_patterns(input_text, data, threshold=0.7):
                 if not isinstance(pattern, dict) or 'text' not in pattern:
                     continue
                     
-                # 패턴 텍스트 전처리
                 pattern_text = str(pattern['text']).lower()
                 pattern_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text)
+                pattern_jamos = decompose_hangul(pattern_cleaned)
                 pattern_words = set(pattern_cleaned.split())
                 
                 if not pattern_words:
                     continue
                 
-                # 단어 매칭 비율 계산
-                common_words = input_words & pattern_words
-                if not common_words:
-                    continue
+                # 자모음 유사도 계산
+                jamo_scores = []
+                for i in range(len(input_jamos)):
+                    for j in range(len(pattern_jamos)):
+                        score = jamo_similarity(input_jamos[i], pattern_jamos[j])
+                        if score > 0.6:  # 자모음 유사도 임계값
+                            jamo_scores.append(score)
+                
+                # 단어 단위 매칭
+                word_scores = []
+                for input_word in input_words:
+                    input_word_jamos = decompose_hangul(input_word)
+                    for pattern_word in pattern_words:
+                        pattern_word_jamos = decompose_hangul(pattern_word)
+                        # 단어 길이가 비슷한 경우만 비교
+                        if abs(len(input_word_jamos) - len(pattern_word_jamos)) <= 2:
+                            similarity = sum(jamo_similarity(a, b) for a, b in 
+                                          zip(input_word_jamos, pattern_word_jamos)) / max(len(input_word_jamos), len(pattern_word_jamos))
+                            if similarity > 0.7:
+                                word_scores.append(similarity)
+                
+                # 최종 유사도 계산
+                if word_scores or jamo_scores:
+                    avg_word_score = sum(word_scores) / len(word_scores) if word_scores else 0
+                    avg_jamo_score = sum(jamo_scores) / len(jamo_scores) if jamo_scores else 0
+                    final_score = (avg_word_score * 0.7 + avg_jamo_score * 0.3)
                     
-                word_match_ratio = len(common_words) / len(pattern_words)
-                
-                # 문자열 유사도 계산
-                if pattern_cleaned in input_text_cleaned:
-                    similarity = 1.0
-                else:
-                    similarity = difflib.SequenceMatcher(None, input_text_cleaned, pattern_cleaned).ratio()
-                
-                # 매칭 점수 계산 (단어 매칭과 문자열 유사도의 가중 평균)
-                match_score = (word_match_ratio * 0.6) + (similarity * 0.4)
-                
-                if match_score >= threshold:
-                    try:
-                        danger_level = int(pattern.get('dangerlevel', 0))
-                    except (ValueError, TypeError):
-                        danger_level = 0
-                        
-                    found_pattern = {
-                        'pattern': pattern['text'],
-                        'analysis': pattern.get('output', '분석 정보 없음'),
-                        'danger_level': danger_level,
-                        'url': pattern.get('url', ''),
-                        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        'match_score': match_score,
-                        'original_text': input_text,
-                        'matched_keywords': sorted(common_words)
-                    }
-                    
-                    # 유튜브 썸네일 처리
-                    if found_pattern['url'] and 'youtube.com' in found_pattern['url']:
-                        thumbnail = get_youtube_thumbnail(found_pattern['url'])
-                        if thumbnail:
-                            found_pattern['thumbnail'] = thumbnail
+                    if final_score >= threshold:
+                        try:
+                            danger_level = int(pattern.get('dangerlevel', 0))
+                        except (ValueError, TypeError):
+                            danger_level = 0
                             
-                    found_patterns.append(found_pattern)
+                        # 오탈자 및 띄어쓰기 오류 확인
+                        spelling_errors = []
+                        spacing_errors = []
+                        
+                        # 단어별 유사도 상세 분석
+                        for input_word in input_words:
+                            closest_match = None
+                            max_similarity = 0
+                            
+                            for pattern_word in pattern_words:
+                                similarity = difflib.SequenceMatcher(None, input_word, pattern_word).ratio()
+                                if 0.6 <= similarity < 1.0 and similarity > max_similarity:
+                                    closest_match = pattern_word
+                                    max_similarity = similarity
+                            
+                            if closest_match:
+                                spelling_errors.append((input_word, closest_match))
+                        
+                        found_pattern = {
+                            'pattern': pattern['text'],
+                            'analysis': pattern.get('output', '분석 정보 없음'),
+                            'danger_level': danger_level,
+                            'url': pattern.get('url', ''),
+                            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            'match_score': final_score,
+                            'original_text': input_text,
+                            'matched_keywords': sorted(set(word_scores)),
+                            'spelling_errors': spelling_errors,
+                            'spacing_errors': spacing_errors
+                        }
+                        
+                        if pattern.get('url') and 'youtube.com' in pattern['url']:
+                            found_pattern['thumbnail'] = get_youtube_thumbnail(pattern['url'])
+                            
+                        found_patterns.append(found_pattern)
             
             except Exception as e:
                 st.error(f"패턴 '{pattern.get('text', '알 수 없는 패턴')}' 처리 중 오류 발생: {str(e)}")
@@ -1232,7 +1280,49 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+def display_analysis_results(patterns, total_score):
+    """분석 결과 표시 - 오탈자/띄어쓰기 및 하이라이트 기능 추가"""
+    danger_level_class = get_danger_level_class(total_score)
+    st.markdown(f"""
+        <div class="danger-meter">
+            <h2>전체 위험도 점수</h2>
+            <div class="danger-score {danger_level_class}">{total_score}</div>
+        </div>
+    """, unsafe_allow_html=True)
 
+    for pattern in patterns:
+        danger_level_class = get_danger_level_class(pattern['danger_level'])
+        thumbnail_html = ""
+        if 'thumbnail' in pattern:
+            thumbnail_html = f'<img src="{pattern["thumbnail"]}" style="width:100%; max-width:480px; border-radius:10px; margin-top:10px;">'
+        
+        # 원본 텍스트에서 패턴 하이라이트
+        highlighted_text = highlight_pattern_in_text(pattern['original_text'], pattern['pattern'])
+        
+        # 매치 점수를 퍼센트로 표시
+        match_percentage = int(pattern['match_score'] * 100)
+        
+        st.markdown(f"""
+            <div class="analysis-card">
+                <h3>🔍 발견된 패턴:</h3>
+                <div class="highlighted-text" style="
+                    background-color: #2A2A2A;
+                    padding: 15px;
+                    border-radius: 8px;
+                    margin: 10px 0;
+                    line-height: 1.6;
+                    font-family: 'Noto Sans KR', sans-serif;">
+                    {highlighted_text}
+                </div>
+                <p>📊 위험도: <span class="{danger_level_class}">{pattern['danger_level']}</span></p>
+                <p>🎯 일치율: {match_percentage}%</p>
+                <p>📝 분석: {pattern['analysis']}</p>
+                {spelling_html}
+                {spacing_html}
+                {f'<p>🔗 <a href="{pattern["url"]}" target="_blank">참고 자료</a></p>' if pattern['url'] else ''}
+                {thumbnail_html}
+            </div>
+        """, unsafe_allow_html=True)
 
 def main():
     st.markdown('<h1 class="main-title">StringAnalysis</h1>', unsafe_allow_html=True)
