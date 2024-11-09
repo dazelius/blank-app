@@ -1318,7 +1318,7 @@ def display_analysis_results(patterns, total_score):
                         <span style="color: #00E676;">{correct}</span>
                     </li>
                 """
-            spelling_html += "</ul></div>"
+            spelling_html += "</ul></div>"  # 여기에 </div> 태그 추가
 
         spacing_html = ""
         if pattern.get('spacing_errors'):
@@ -1335,7 +1335,7 @@ def display_analysis_results(patterns, total_score):
                         <span style="color: #00E676;">{correct}</span>
                     </li>
                 """
-            spacing_html += "</ul></div>"
+            spacing_html += "</ul></div>"  # 여기에 </div> 태그 추가
         
         st.markdown(f"""
             <div class="analysis-card">
