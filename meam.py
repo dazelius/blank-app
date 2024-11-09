@@ -434,192 +434,143 @@ def get_youtube_thumbnail(url):
 
 # 3. 병렬 처리 최적화
 def find_matching_patterns(input_text, data, threshold=0.7):
-    """병렬 처리 최적화 버전 - 유사 패턴 그룹화"""
-    input_text = input_text.strip()
+    """텍스트 패턴 매칭 - 최적화 버전"""
+    if not data or not input_text:
+        return []
+        
+    input_text = str(input_text).strip()
     if not input_text or input_text.isspace():
         return []
     
-    # 입력 텍스트 전처리
-    input_text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', input_text.lower())
-    input_words = set(w for w in input_text_cleaned.split() if w.strip())
-    input_chars = set(input_text_cleaned)
-    
-    if len(input_words) < 2:
-        return []
+    try:
+        # 입력 텍스트 전처리
+        input_text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', input_text.lower())
+        input_words = set(w for w in input_text_cleaned.split() if w.strip())
+        input_chars = set(input_text_cleaned)
         
-    patterns = preprocess_patterns(data)
-    input_data = (input_text_cleaned, input_words, input_chars)
-    
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    from functools import partial
-    
-    found_patterns = []
-    pattern_groups = {}  # 패턴 그룹을 저장할 딕셔너리
-    
-    def get_pattern_key(text):
-        """패턴의 핵심 키워드를 추출하여 정렬된 튜플로 반환"""
-        cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', text.lower())
-        words = sorted(set(w for w in cleaned.split() if len(w) >= 2))
-        return tuple(words)
-    
-    def merge_patterns(existing, new_pattern):
-        """두 패턴을 병합"""
-        # 위험도는 최대값 사용
-        existing['danger_level'] = max(existing['danger_level'], new_pattern['danger_level'])
-        # 매치 점수는 최대값 사용
-        existing['match_score'] = max(existing['match_score'], new_pattern['match_score'])
-        # 키워드 병합
-        existing_keywords = set(existing.get('matched_keywords', []))
-        new_keywords = set(new_pattern.get('matched_keywords', []))
-        existing['matched_keywords'] = sorted(existing_keywords | new_keywords)
-        # URL이 있는 경우 추가
-        if new_pattern.get('url') and not existing.get('url'):
-            existing['url'] = new_pattern['url']
-        # 분석 내용이 다른 경우 추가
-        if new_pattern['analysis'] != existing['analysis']:
-            existing['analysis'] = f"{existing['analysis']}\n추가 분석: {new_pattern['analysis']}"
-        return existing
-    
-    def process_pattern_batch(patterns_batch):
-        batch_results = []
-        check_func = partial(check_pattern, input_data, threshold=threshold)
-        for pattern in patterns_batch:
-            if not pattern['cleaned_text'].strip():
-                continue
-            result = check_func(pattern)
-            if result:
-                result['original_text'] = input_text
-                result['matched_keywords'] = extract_keywords(result['pattern'])
-                # 패턴 키 생성
-                pattern_key = get_pattern_key(result['pattern'])
-                batch_results.append((pattern_key, result))
-        return batch_results
-    
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        futures = []
+        if len(input_words) < 1:  # 최소 단어 수 체크 완화
+            return []
+            
+        # 패턴 데이터 전처리
+        found_patterns = []
         
-        # 모든 길이의 패턴을 처리
-        for pattern_type in ['short', 'medium', 'long']:
-            patterns_list = patterns[pattern_type]
-            chunk_size = max(1, len(patterns_list) // 4)
-            for i in range(0, len(patterns_list), chunk_size):
-                chunk = patterns_list[i:i + chunk_size]
-                futures.append(executor.submit(process_pattern_batch, chunk))
-        
-        # 결과 수집 및 그룹화
-        for future in as_completed(futures):
+        for pattern in data:
             try:
-                results = future.result()
-                for pattern_key, result in results:
-                    if pattern_key in pattern_groups:
-                        pattern_groups[pattern_key] = merge_patterns(pattern_groups[pattern_key], result)
-                    else:
-                        pattern_groups[pattern_key] = result
+                if not isinstance(pattern, dict) or 'text' not in pattern:
+                    continue
+                    
+                # 패턴 텍스트 전처리
+                pattern_text = str(pattern['text']).lower()
+                pattern_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text)
+                pattern_words = set(pattern_cleaned.split())
+                
+                if not pattern_words:
+                    continue
+                
+                # 단어 매칭 비율 계산
+                common_words = input_words & pattern_words
+                if not common_words:
+                    continue
+                    
+                word_match_ratio = len(common_words) / len(pattern_words)
+                
+                # 문자열 유사도 계산
+                if pattern_cleaned in input_text_cleaned:
+                    similarity = 1.0
+                else:
+                    similarity = difflib.SequenceMatcher(None, input_text_cleaned, pattern_cleaned).ratio()
+                
+                # 매칭 점수 계산 (단어 매칭과 문자열 유사도의 가중 평균)
+                match_score = (word_match_ratio * 0.6) + (similarity * 0.4)
+                
+                if match_score >= threshold:
+                    try:
+                        danger_level = int(pattern.get('dangerlevel', 0))
+                    except (ValueError, TypeError):
+                        danger_level = 0
+                        
+                    found_pattern = {
+                        'pattern': pattern['text'],
+                        'analysis': pattern.get('output', '분석 정보 없음'),
+                        'danger_level': danger_level,
+                        'url': pattern.get('url', ''),
+                        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        'match_score': match_score,
+                        'original_text': input_text,
+                        'matched_keywords': sorted(common_words)
+                    }
+                    
+                    # 유튜브 썸네일 처리
+                    if found_pattern['url'] and 'youtube.com' in found_pattern['url']:
+                        thumbnail = get_youtube_thumbnail(found_pattern['url'])
+                        if thumbnail:
+                            found_pattern['thumbnail'] = thumbnail
+                            
+                    found_patterns.append(found_pattern)
+            
             except Exception as e:
-                st.error(f"패턴 매칭 중 오류 발생: {str(e)}")
-    
-    # 그룹화된 결과를 리스트로 변환
-    found_patterns = list(pattern_groups.values())
-    
-    # 매치 점수와 위험도로 정렬
-    found_patterns.sort(key=lambda x: (x['match_score'], x['danger_level']), reverse=True)
-    
-    # 유튜브 썸네일 처리
-    for pattern in found_patterns:
-        if pattern.get('url') and 'youtube.com' in pattern['url']:
-            thumbnail = get_youtube_thumbnail(pattern['url'])
-            if thumbnail:
-                pattern['thumbnail'] = thumbnail
-    
-    return found_patterns
+                st.error(f"패턴 '{pattern.get('text', '알 수 없는 패턴')}' 처리 중 오류 발생: {str(e)}")
+                continue
+        
+        # 매치 점수와 위험도로 정렬
+        found_patterns.sort(key=lambda x: (-x['match_score'], -x['danger_level']))
+        
+        return found_patterns
+        
+    except Exception as e:
+        st.error(f"패턴 매칭 중 오류 발생: {str(e)}")
+        import traceback
+        st.error(f"상세 오류: {traceback.format_exc()}")
+        return []
 
 def extract_keywords(text):
     """텍스트에서 핵심 키워드 추출"""
-    # 특수문자 제거 및 소문자 변환
-    cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', text.lower())
-    # 2글자 이상 단어만 추출
-    words = [w for w in cleaned.split() if len(w) >= 2]
-    # 중복 제거 및 정렬
-    return sorted(set(words))
-
-def display_analysis_results(patterns, total_score):
-    """분석 결과 표시 - 하이라이트 기능 추가"""
-    danger_level_class = get_danger_level_class(total_score)
-    st.markdown(f"""
-        <div class="danger-meter">
-            <h2>전체 위험도 점수</h2>
-            <div class="danger-score {danger_level_class}">{total_score}</div>
-        </div>
-    """, unsafe_allow_html=True)
-
-    for pattern in patterns:
-        danger_level_class = get_danger_level_class(pattern['danger_level'])
-        thumbnail_html = ""
-        if 'thumbnail' in pattern:
-            thumbnail_html = f'<img src="{pattern["thumbnail"]}" style="width:100%; max-width:480px; border-radius:10px; margin-top:10px;">'
-        
-        # 원본 텍스트에서 패턴 하이라이트
-        highlighted_text = highlight_pattern_in_text(pattern['original_text'], pattern['pattern'])
-        
-        # 매치 점수를 퍼센트로 표시
-        match_percentage = int(pattern['match_score'] * 100)
-        
-        st.markdown(f"""
-            <div class="analysis-card">
-                <h3>🔍 발견된 패턴:</h3>
-                <div class="highlighted-text" style="
-                    background-color: #2A2A2A;
-                    padding: 15px;
-                    border-radius: 8px;
-                    margin: 10px 0;
-                    line-height: 1.6;
-                    font-family: 'Noto Sans KR', sans-serif;">
-                    {highlighted_text}
-                </div>
-                <p>📊 위험도: <span class="{danger_level_class}">{pattern['danger_level']}</span></p>
-                <p>🎯 일치율: {match_percentage}%</p>
-                <p>📝 분석: {pattern['analysis']}</p>
-                {f'<p>🔗 <a href="{pattern["url"]}" target="_blank">참고 자료</a></p>' if pattern['url'] else ''}
-                {thumbnail_html}
-            </div>
-        """, unsafe_allow_html=True)
+    try:
+        # 특수문자 제거 및 소문자 변환
+        cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', str(text).lower())
+        # 2글자 이상 단어만 추출
+        words = [w for w in cleaned.split() if len(w) >= 2]
+        # 중복 제거 및 정렬
+        return sorted(set(words))
+    except Exception as e:
+        st.error(f"키워드 추출 중 오류 발생: {str(e)}")
+        return []
 
 def highlight_pattern_in_text(original_text, pattern):
     """텍스트 내의 패턴을 하이라이트"""
-    # 패턴과 원본 텍스트를 정규화
-    pattern_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern.lower())
-    text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', original_text.lower())
-    
-    # CSS 스타일이 적용된 하이라이트 HTML
-    highlight_style = """
-        background: linear-gradient(104deg, rgba(255, 178, 15, 0.1) 0.9%, rgba(255, 178, 15, 0.3) 2.4%, rgba(255, 178, 15, 0.2) 5.8%, rgba(255, 178, 15, 0.1) 93%, rgba(255, 178, 15, 0.1) 96%);
-        border-radius: 4px;
-        padding: 0.1em 0.2em;
-        box-decoration-break: clone;
-        -webkit-box-decoration-break: clone;
-        position: relative;
-        color: #FFB20F;
-        font-weight: 500;
-    """
-    
     try:
+        # 패턴과 원본 텍스트를 정규화
+        pattern_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', str(pattern).lower())
+        text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', str(original_text).lower())
+        
+        # CSS 스타일이 적용된 하이라이트 HTML
+        highlight_style = """
+            background: linear-gradient(104deg, rgba(255, 178, 15, 0.1) 0.9%, rgba(255, 178, 15, 0.3) 2.4%, rgba(255, 178, 15, 0.2) 5.8%, rgba(255, 178, 15, 0.1) 93%, rgba(255, 178, 15, 0.1) 96%);
+            border-radius: 4px;
+            padding: 0.1em 0.2em;
+            box-decoration-break: clone;
+            -webkit-box-decoration-break: clone;
+            position: relative;
+            color: #FFB20F;
+            font-weight: 500;
+        """
+        
         # 패턴의 각 단어에 대해 하이라이트 처리
-        pattern_words = pattern_cleaned.split()
-        result_text = original_text
+        result_text = str(original_text)
+        pattern_words = [w for w in pattern_cleaned.split() if len(w) >= 2]
         
         for word in pattern_words:
-            if len(word) >= 2:  # 2글자 이상의 단어만 처리
-                # 대소문자 구분 없이 매칭하되, 원본 텍스트의 대소문자는 유지
-                pattern = re.compile(re.escape(word), re.IGNORECASE)
-                result_text = pattern.sub(
-                    lambda m: f'<span style="{highlight_style}">{m.group()}</span>',
-                    result_text
-                )
+            # 대소문자 구분 없이 매칭하되, 원본 텍스트의 대소문자는 유지
+            pattern = re.compile(re.escape(word), re.IGNORECASE)
+            result_text = pattern.sub(
+                lambda m: f'<span style="{highlight_style}">{m.group()}</span>',
+                result_text
+            )
         
         return result_text
     except Exception as e:
         st.error(f"하이라이트 처리 중 오류 발생: {str(e)}")
-        return original_text
+        return str(original_text)
 
 # CSS 스타일 추가
 st.markdown("""
