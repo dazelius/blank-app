@@ -202,89 +202,129 @@ def preprocess_patterns(data):
             if not isinstance(record, dict):
                 continue
                 
-            pattern_text = record.get('text', '').lower()
-            if not pattern_text:
+            # text 필드가 없거나 None인 경우 건너뛰기
+            if 'text' not in record or record['text'] is None:
                 continue
                 
-            pattern_text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text)
-            pattern_words = set(pattern_text_cleaned.split())
-            
-            processed = {
-                'original': record,
-                'cleaned_text': pattern_text_cleaned,
-                'words': pattern_words,
-                'chars': set(pattern_text_cleaned),
-                'word_count': len(pattern_words),
-                'length': len(pattern_text_cleaned)
-            }
-            
-            # 길이에 따라 분류
-            if processed['length'] <= 10:
-                short_patterns.append(processed)
-            elif processed['length'] <= 30:
-                medium_patterns.append(processed)
+            # 숫자형을 문자열로 변환
+            if isinstance(record['text'], (int, float)):
+                pattern_text = str(record['text']).lower()
             else:
-                long_patterns.append(processed)
+                try:
+                    pattern_text = str(record['text']).lower()
+                except:
+                    continue
+            
+            if not pattern_text.strip():  # 빈 문자열 건너뛰기
+                continue
+                
+            try:
+                pattern_text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text)
+                pattern_words = set(w for w in pattern_text_cleaned.split() if w.strip())
+                
+                processed = {
+                    'original': record,
+                    'cleaned_text': pattern_text_cleaned,
+                    'words': pattern_words,
+                    'chars': set(pattern_text_cleaned),
+                    'word_count': len(pattern_words),
+                    'length': len(pattern_text_cleaned)
+                }
+                
+                # 길이에 따라 분류
+                if processed['length'] <= 10:
+                    short_patterns.append(processed)
+                elif processed['length'] <= 30:
+                    medium_patterns.append(processed)
+                else:
+                    long_patterns.append(processed)
+                    
+            except Exception as e:
+                st.error(f"패턴 '{pattern_text}' 처리 중 오류 발생: {str(e)}")
+                continue
         
-        return {
+        result = {
             'short': short_patterns,
             'medium': medium_patterns,
             'long': long_patterns
         }
+        
+        # 결과 검증
+        if not any(result.values()):
+            st.warning("처리된 패턴이 없습니다. 데이터를 확인해주세요.")
+        else:
+            total_patterns = sum(len(patterns) for patterns in result.values())
+            st.success(f"총 {total_patterns}개의 패턴이 처리되었습니다.")
+            
+        return result
+        
     except Exception as e:
         st.error(f"데이터 전처리 중 오류 발생: {str(e)}")
+        import traceback
+        st.error(f"상세 오류: {traceback.format_exc()}")
         return {
             'short': [],
             'medium': [],
             'long': []
         }
 
-
-# 2. 패턴 매칭 최적화
 def check_pattern(input_data, pattern_data, threshold=0.7):
     """단일 패턴 매칭 검사 - 최적화 버전"""
+    if not pattern_data or 'chars' not in pattern_data:
+        return None
+        
     input_text_cleaned, input_words, input_chars = input_data
     
-    # 빠른 문자 기반 필터링
-    char_intersection = len(input_chars & pattern_data['chars'])
-    if char_intersection < min(3, len(pattern_data['chars']) * 0.3):
-        return None
-    
-    # 단어 기반 필터링
-    common_words = input_words & pattern_data['words']
-    word_match_ratio = len(common_words) / pattern_data['word_count'] if pattern_data['word_count'] > 0 else 0
-    
-    # 짧은 패턴은 포함 여부만 빠르게 체크
-    if pattern_data['length'] <= 10:
-        if pattern_data['cleaned_text'] in input_text_cleaned:
-            similarity = 1.0
-        elif word_match_ratio < threshold * 0.5:
+    try:
+        # 빠른 문자 기반 필터링
+        char_intersection = len(input_chars & pattern_data['chars'])
+        if char_intersection < min(3, len(pattern_data['chars']) * 0.3):
             return None
+        
+        # 단어 기반 필터링
+        common_words = input_words & pattern_data['words']
+        word_match_ratio = len(common_words) / pattern_data['word_count'] if pattern_data['word_count'] > 0 else 0
+        
+        # 짧은 패턴은 포함 여부만 빠르게 체크
+        if pattern_data['length'] <= 10:
+            if pattern_data['cleaned_text'] in input_text_cleaned:
+                similarity = 1.0
+            elif word_match_ratio < threshold * 0.5:
+                return None
+            else:
+                similarity = word_match_ratio
         else:
-            similarity = word_match_ratio
-    else:
-        # 긴 패턴은 단어 매칭 비율로 1차 필터링
-        if word_match_ratio < threshold * 0.5:
-            return None
-        similarity = difflib.SequenceMatcher(None, input_text_cleaned, pattern_data['cleaned_text']).ratio()
-    
-    if similarity >= threshold:
-        record = pattern_data['original']
-        try:
-            danger_level = int(record.get('dangerlevel', 0))
-        except (ValueError, TypeError):
-            danger_level = 0
-            
-        return {
-            'pattern': record['text'],
-            'analysis': record['output'],
-            'danger_level': danger_level,
-            'url': record.get('url', ''),
-            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'match_score': similarity
-        }
-    
-    return None
+            # 긴 패턴은 단어 매칭 비율로 1차 필터링
+            if word_match_ratio < threshold * 0.5:
+                return None
+            similarity = difflib.SequenceMatcher(None, input_text_cleaned, pattern_data['cleaned_text']).ratio()
+        
+        if similarity >= threshold:
+            record = pattern_data['original']
+            try:
+                # 숫자형 위험도 처리
+                danger_level = str(record.get('dangerlevel', '0'))
+                if danger_level.isdigit():
+                    danger_level = int(danger_level)
+                else:
+                    danger_level = 0
+            except (ValueError, TypeError):
+                danger_level = 0
+                
+            return {
+                'pattern': str(record['text']),
+                'analysis': str(record.get('output', '')),
+                'danger_level': danger_level,
+                'url': str(record.get('url', '')),
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                'match_score': similarity
+            }
+        
+        return None
+        
+    except Exception as e:
+        st.error(f"패턴 매칭 중 오류 발생: {str(e)}")
+        return None
 
 
 
