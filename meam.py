@@ -1298,13 +1298,6 @@ def display_analysis_results(patterns, total_score):
         
         highlighted_text = highlight_pattern_in_text(pattern['original_text'], pattern['pattern'])
         match_percentage = int(pattern['match_score'] * 100)
-
-        spelling_html = ""
-        if pattern.get('spelling_errors'):
-            spelling_html = "<div><h4>🔍 발견된 오탈자:</h4><ul>"
-            for wrong, correct in pattern['spelling_errors']:
-                spelling_html += f"<li><span>{wrong}</span> → <span>{correct}</span></li>"
-            spelling_html += "</ul></div>"
         
         st.markdown(f"""
             <div class="analysis-card">
@@ -1313,7 +1306,6 @@ def display_analysis_results(patterns, total_score):
                 <p>📊 위험도: <span class="{danger_level_class}">{pattern['danger_level']}</span></p>
                 <p>🎯 일치율: {match_percentage}%</p>
                 <p>📝 분석: {pattern['analysis']}</p>
-                {spelling_html}
                 {f'<p>🔗 <a href="{pattern["url"]}" target="_blank">참고 자료</a></p>' if pattern['url'] else ''}
                 {thumbnail_html}
             </div>
