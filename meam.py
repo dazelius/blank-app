@@ -1019,7 +1019,7 @@ def analyze_file_contents(file_content, data):
                 
                 total_time = time.time() - start_time
                 update_log(f"""
-                    ✅ 분석 완료:
+                    ⚠️ 분석 완료:
                     - 처리 시간: {total_time:.1f}초
                     - 처리 속도: {total_rows/total_time:.0f} 행/초
                     - 총 처리된 행: {processed_rows:,}개
