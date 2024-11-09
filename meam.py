@@ -182,6 +182,14 @@ st.markdown("""
 @st.cache_data(ttl=3600)
 def preprocess_patterns(data):
     """패턴 데이터 전처리 및 캐싱 - 최적화 버전"""
+    if not data:
+        st.error("데이터가 비어있습니다.")
+        return {
+            'short': [],
+            'medium': [],
+            'long': []
+        }
+    
     processed_patterns = []
     
     # 길이별로 패턴 분류
@@ -189,33 +197,47 @@ def preprocess_patterns(data):
     medium_patterns = []
     long_patterns = []
     
-    for record in data:
-        pattern_text = record.get('text', '').lower()
-        pattern_text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text)
-        pattern_words = set(pattern_text_cleaned.split())
+    try:
+        for record in data:
+            if not isinstance(record, dict):
+                continue
+                
+            pattern_text = record.get('text', '').lower()
+            if not pattern_text:
+                continue
+                
+            pattern_text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text)
+            pattern_words = set(pattern_text_cleaned.split())
+            
+            processed = {
+                'original': record,
+                'cleaned_text': pattern_text_cleaned,
+                'words': pattern_words,
+                'chars': set(pattern_text_cleaned),
+                'word_count': len(pattern_words),
+                'length': len(pattern_text_cleaned)
+            }
+            
+            # 길이에 따라 분류
+            if processed['length'] <= 10:
+                short_patterns.append(processed)
+            elif processed['length'] <= 30:
+                medium_patterns.append(processed)
+            else:
+                long_patterns.append(processed)
         
-        processed = {
-            'original': record,
-            'cleaned_text': pattern_text_cleaned,
-            'words': pattern_words,
-            'chars': set(pattern_text_cleaned),
-            'word_count': len(pattern_words),
-            'length': len(pattern_text_cleaned)
+        return {
+            'short': short_patterns,
+            'medium': medium_patterns,
+            'long': long_patterns
         }
-        
-        # 길이에 따라 분류
-        if processed['length'] <= 10:
-            short_patterns.append(processed)
-        elif processed['length'] <= 30:
-            medium_patterns.append(processed)
-        else:
-            long_patterns.append(processed)
-    
-    return {
-        'short': short_patterns,
-        'medium': medium_patterns,
-        'long': long_patterns
-    }
+    except Exception as e:
+        st.error(f"데이터 전처리 중 오류 발생: {str(e)}")
+        return {
+            'short': [],
+            'medium': [],
+            'long': []
+        }
 
 
 # 2. 패턴 매칭 최적화
@@ -957,100 +979,222 @@ def main():
     > 💡 입력된 문장을 분석하고 점수화하여 보여드립니다.
     """)
 
-    # 데이터 로드
-    data = load_sheet_data()
-    if data is None:
-        st.error("데이터를 불러올 수 없습니다.")
-        return
-
-    # 탭 생성
-    tab1, tab2 = st.tabs(["🔍 문장 분석", "✏️ 패턴 등록"])
-
-    with tab1:
-        analysis_type = st.radio(
-            "분석 유형 선택:",
-            ["텍스트 직접 입력", "파일/폴더 업로드"],
-            horizontal=True
-        )
-        
-        if analysis_type == "텍스트 직접 입력":
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                input_text = st.text_area(
-                    "분석할 문장을 입력하세요:",
-                    placeholder="분석하고 싶은 문장을 입력해주세요...",
-                    height=100
-                )
-            with col2:
-                st.write("")
-                st.write("")
-                analyze_button = st.button("🔍 위험도 분석", use_container_width=True, key="analyze")
+    # 데이터 로드 및 검증
+    try:
+        data = load_sheet_data()
+        if not data:
+            st.error("패턴 데이터를 불러올 수 없습니다. 구글 시트 연결을 확인해주세요.")
+            return
             
-            if analyze_button and input_text:
-                with st.spinner('🔄 문장을 분석하고 있습니다...'):
-                    found_patterns = find_matching_patterns(input_text, data)
-                    if found_patterns:
-                        total_score = calculate_danger_score(found_patterns)
-                        st.success(f"🎯 분석이 완료되었습니다! {len(found_patterns)}개의 패턴이 발견되었습니다.")
-                        display_analysis_results(found_patterns, total_score)
-                    else:
-                        st.info("👀 특별한 위험 패턴이 발견되지 않았습니다.")
-        
-        else:  # 파일/폴더 업로드
-            st.markdown("""
-                <div style="background-color: #2D2D2D; padding: 10px; border-radius: 5px; margin-bottom: 10px;">
-                    <h4>📁 파일 업로드 안내</h4>
-                    <p>• 단일/다중 파일: CSV, Excel 파일 직접 업로드</p>
-                    <p>• 폴더 업로드: 여러 파일을 ZIP으로 압축하여 업로드</p>
-                    <p>• 지원 형식: .csv, .xlsx, .xls, .zip</p>
-                </div>
-            """, unsafe_allow_html=True)
+        if not isinstance(data, list) or not data:
+            st.error("패턴 데이터 형식이 올바르지 않습니다.")
+            return
             
-            # 다중 파일 업로드 지원
-            uploaded_files = st.file_uploader(
-                "파일 또는 ZIP 폴더 업로드", 
-                type=['csv', 'xlsx', 'xls', 'zip'],
-                accept_multiple_files=True,
-                help="여러 파일을 한 번에 선택하거나, ZIP 파일로 압축하여 업로드하세요."
+        # 데이터 구조 검증
+        required_fields = ['text', 'output', 'dangerlevel']
+        if not all(isinstance(item, dict) and all(field in item for field in required_fields) for item in data):
+            st.error("패턴 데이터에 필수 필드가 누락되었습니다.")
+            return
+            
+        # 탭 생성
+        tab1, tab2 = st.tabs(["🔍 문장 분석", "✏️ 패턴 등록"])
+
+        with tab1:
+            analysis_type = st.radio(
+                "분석 유형 선택:",
+                ["텍스트 직접 입력", "파일/폴더 업로드"],
+                horizontal=True
             )
             
-            if uploaded_files:
-                if st.button("📂 파일 분석", use_container_width=True):
-                    all_results = []
-                    total_patterns = 0
-                    
-                    # 프로그레스 바 설정
-                    progress_text = st.empty()
-                    progress_bar = st.progress(0)
-                    
-                    for idx, file in enumerate(uploaded_files):
-                        progress = (idx + 1) / len(uploaded_files)
-                        progress_bar.progress(progress)
-                        progress_text.text(f"파일 분석 중... ({idx + 1}/{len(uploaded_files)}): {file.name}")
+            if analysis_type == "텍스트 직접 입력":
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    input_text = st.text_area(
+                        "분석할 문장을 입력하세요:",
+                        placeholder="분석하고 싶은 문장을 입력해주세요...",
+                        height=100
+                    )
+                with col2:
+                    st.write("")
+                    st.write("")
+                    analyze_button = st.button("🔍 위험도 분석", use_container_width=True, key="analyze")
+                
+                if analyze_button and input_text:
+                    with st.spinner('🔄 문장을 분석하고 있습니다...'):
+                        found_patterns = find_matching_patterns(input_text, data)
+                        if found_patterns:
+                            total_score = calculate_danger_score(found_patterns)
+                            st.success(f"🎯 분석이 완료되었습니다! {len(found_patterns)}개의 패턴이 발견되었습니다.")
+                            display_analysis_results(found_patterns, total_score)
+                        else:
+                            st.info("👀 특별한 위험 패턴이 발견되지 않았습니다.")
+            
+            else:  # 파일/폴더 업로드
+                st.markdown("""
+                    <div style="background-color: #2D2D2D; padding: 10px; border-radius: 5px; margin-bottom: 10px;">
+                        <h4>📁 파일 업로드 안내</h4>
+                        <p>• 단일/다중 파일: CSV, Excel 파일 직접 업로드</p>
+                        <p>• 폴더 업로드: 여러 파일을 ZIP으로 압축하여 업로드</p>
+                        <p>• 지원 형식: .csv, .xlsx, .xls, .zip</p>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                # 다중 파일 업로드 지원
+                uploaded_files = st.file_uploader(
+                    "파일 또는 ZIP 폴더 업로드", 
+                    type=['csv', 'xlsx', 'xls', 'zip'],
+                    accept_multiple_files=True,
+                    help="여러 파일을 한 번에 선택하거나, ZIP 파일로 압축하여 업로드하세요."
+                )
+                
+                if uploaded_files:
+                    if st.button("📂 파일 분석", use_container_width=True):
+                        all_results = []
+                        total_patterns = 0
                         
-                        with st.spinner(f'🔄 {file.name} 분석 중...'):
-                            analysis_result = analyze_file_contents(file, data)
-                            if analysis_result and analysis_result['total_patterns'] > 0:
-                                all_results.extend(analysis_result['results'])
-                                total_patterns += analysis_result['total_patterns']
-                    
-                    progress_bar.empty()
-                    progress_text.empty()
-                    
-                    if total_patterns > 0:
-                        st.success(f"🎯 분석이 완료되었습니다! 총 {total_patterns}개의 패턴이 발견되었습니다.")
+                        # 프로그레스 바 설정
+                        progress_text = st.empty()
+                        progress_bar = st.progress(0)
                         
-                        # 전체 결과를 분석 결과 형식으로 변환
-                        combined_results = {
-                            'total_patterns': total_patterns,
-                            'results': sorted(all_results, 
-                                           key=lambda x: (x['danger_level'], x['match_score']), 
-                                           reverse=True)[:1000]  # 상위 1000개만 표시
-                        }
-                        display_file_analysis_results(combined_results)
-                    else:
-                        st.info("👀 파일에서 위험 패턴이 발견되지 않았습니다.")
+                        # 각 파일 처리
+                        for idx, file in enumerate(uploaded_files):
+                            progress = (idx + 1) / len(uploaded_files)
+                            progress_bar.progress(progress)
+                            progress_text.text(f"파일 분석 중... ({idx + 1}/{len(uploaded_files)}): {file.name}")
+                            
+                            with st.spinner(f'🔄 {file.name} 분석 중...'):
+                                analysis_result = analyze_file_contents(file, data)
+                                if analysis_result and analysis_result['total_patterns'] > 0:
+                                    all_results.extend(analysis_result['results'])
+                                    total_patterns += analysis_result['total_patterns']
+                        
+                        progress_bar.empty()
+                        progress_text.empty()
+                        
+                        if total_patterns > 0:
+                            st.success(f"🎯 분석이 완료되었습니다! 총 {total_patterns}개의 패턴이 발견되었습니다.")
+                            
+                            # 전체 결과를 분석 결과 형식으로 변환
+                            combined_results = {
+                                'total_patterns': total_patterns,
+                                'results': sorted(all_results, 
+                                               key=lambda x: (x['danger_level'], x['match_score']), 
+                                               reverse=True)[:1000]  # 상위 1000개만 표시
+                            }
+                            display_file_analysis_results(combined_results)
+                        else:
+                            st.info("👀 파일에서 위험 패턴이 발견되지 않았습니다.")
 
+        with tab2:
+            st.markdown("""
+            <div style='background-color: #2D2D2D; padding: 1rem; border-radius: 10px; margin-bottom: 1rem;'>
+                <h4>🌟 새로운 패턴 등록</h4>
+                <p style='color: #E0E0E0;'>새로운 위험 패턴을 등록해주세요.</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            with st.form("pattern_registration_form", clear_on_submit=True):
+                pattern_text = st.text_input("🏷️ 패턴:", placeholder="위험 패턴을 입력하세요")
+                analysis_text = st.text_area("📝 분석:", placeholder="이 패턴의 위험성을 설명해주세요", height=100)
+                danger_level = st.slider("⚠️ 위험도:", 0, 100, 50)
+                url = st.text_input("🔗 참고 URL:", placeholder="관련 참고 자료 URL")
+                
+                col1, col2, col3 = st.columns([1,1,1])
+                with col2:
+                    submit_button = st.form_submit_button("✨ 패턴 등록", use_container_width=True)
+                        
+            if submit_button:
+                if all([pattern_text, analysis_text]):
+                    try:
+                        worksheet = get_sheet_instance()
+                        if worksheet:
+                            worksheet.append_row([
+                                pattern_text,
+                                analysis_text,
+                                url,
+                                danger_level,
+                                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            ])
+                            st.success("✅ 패턴이 등록되었습니다!")
+                            st.balloons()
+                            # 캐시 갱신
+                            st.cache_data.clear()
+                            # 페이지 새로고침
+                            st.rerun()
+                        else:
+                            st.error("시트에 연결할 수 없습니다.")
+                    except Exception as e:
+                        st.error(f"😢 패턴 등록 중 오류가 발생했습니다: {str(e)}")
+                else:
+                    st.warning("⚠️ 패턴과 분석 내용은 필수입니다!")
+            
+            # 데이터베이스 테이블 표시
+            st.markdown("""
+            <div class="database-title">
+                📊 현재 등록된 패턴 데이터베이스
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # 데이터프레임 생성 및 표시
+            if data:
+                df = pd.DataFrame(data)
+                
+                # 컬럼명 변경
+                column_mapping = {
+                    'text': '패턴',
+                    'output': '분석',
+                    'url': '참고 URL',
+                    'dangerlevel': '위험도',
+                    'timestamp': '등록일시'
+                }
+                
+                # 존재하는 컬럼만 이름 변경
+                for old_col, new_col in column_mapping.items():
+                    if old_col in df.columns:
+                        df = df.rename(columns={old_col: new_col})
+                
+                # 검색/필터링 기능
+                search_term = st.text_input("🔍 패턴 검색:", placeholder="검색어를 입력하세요...")
+                if search_term:
+                    pattern_mask = df['패턴'].astype(str).str.contains(search_term, case=False, na=False)
+                    analysis_mask = df['분석'].astype(str).str.contains(search_term, case=False, na=False)
+                    df = df[pattern_mask | analysis_mask]
+                
+                # 위험도 필터링
+                if '위험도' in df.columns:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        min_danger = st.number_input("최소 위험도:", min_value=0, max_value=100, value=0)
+                    with col2:
+                        max_danger = st.number_input("최대 위험도:", min_value=0, max_value=100, value=100)
+                    
+                    df['위험도'] = pd.to_numeric(df['위험도'], errors='coerce')
+                    df = df[(df['위험도'] >= min_danger) & (df['위험도'] <= max_danger)]
+                
+                # 테이블 표시
+                st.dataframe(
+                    df,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=400
+                )
+                
+                # 통계 정보 표시
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("총 패턴 수", len(df))
+                if '위험도' in df.columns:
+                    with col2:
+                        st.metric("평균 위험도", f"{df['위험도'].mean():.1f}")
+                    with col3:
+                        st.metric("고위험 패턴 수", len(df[df['위험도'] >= 70]))
+            else:
+                st.info("등록된 패턴이 없습니다.")
+                
+    except Exception as e:
+        st.error(f"애플리케이션 실행 중 오류가 발생했습니다: {str(e)}")
+        st.error("상세 오류:", exception=True)
+        return
 
 if __name__ == "__main__":
     main()
