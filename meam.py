@@ -1294,61 +1294,29 @@ def display_analysis_results(patterns, total_score):
         danger_level_class = get_danger_level_class(pattern['danger_level'])
         thumbnail_html = ""
         if 'thumbnail' in pattern:
-            thumbnail_html = f'<img src="{pattern["thumbnail"]}" style="width:100%; max-width:480px; border-radius:10px; margin-top:10px;">'
+            thumbnail_html = f'<img src="{pattern["thumbnail"]}" style="max-width:100%;">'
         
-        # 원본 텍스트에서 패턴 하이라이트
         highlighted_text = highlight_pattern_in_text(pattern['original_text'], pattern['pattern'])
-        
-        # 매치 점수를 퍼센트로 표시
         match_percentage = int(pattern['match_score'] * 100)
 
-        # 오탈자 및 띄어쓰기 오류 HTML 생성
         spelling_html = ""
         if pattern.get('spelling_errors'):
-            spelling_errors = pattern['spelling_errors']
-            spelling_html = """
-                <div style="margin-top: 10px; padding: 10px; background-color: #2A2A2A; border-radius: 5px;">
-                    <h4 style="color: #FFB20F; margin-bottom: 8px;">🔍 발견된 오탈자:</h4>
-                    <ul style="list-style-type: none; padding-left: 0;">
-            """
-            for wrong, correct in spelling_errors:
-                spelling_html += f"""
-                    <li style="margin-bottom: 5px;">
-                        <span style="color: #FF5252;">{wrong}</span> →
-                        <span style="color: #00E676;">{correct}</span>
-                    </li>
-                """
-            spelling_html += "</ul></div>"  # 여기에 </div> 태그 추가
+            spelling_html = "<div><h4>🔍 발견된 오탈자:</h4><ul>"
+            for wrong, correct in pattern['spelling_errors']:
+                spelling_html += f"<li><span>{wrong}</span> → <span>{correct}</span></li>"
+            spelling_html += "</ul></div>"
 
         spacing_html = ""
         if pattern.get('spacing_errors'):
-            spacing_errors = pattern['spacing_errors']
-            spacing_html = """
-                <div style="margin-top: 10px; padding: 10px; background-color: #2A2A2A; border-radius: 5px;">
-                    <h4 style="color: #FFB20F; margin-bottom: 8px;">✍️ 띄어쓰기 제안:</h4>
-                    <ul style="list-style-type: none; padding-left: 0;">
-            """
-            for wrong, correct in spacing_errors:
-                spacing_html += f"""
-                    <li style="margin-bottom: 5px;">
-                        <span style="color: #FF5252;">{wrong}</span> →
-                        <span style="color: #00E676;">{correct}</span>
-                    </li>
-                """
-            spacing_html += "</ul></div>"  # 여기에 </div> 태그 추가
+            spacing_html = "<div><h4>✍️ 띄어쓰기 제안:</h4><ul>"
+            for wrong, correct in pattern['spacing_errors']:
+                spacing_html += f"<li><span>{wrong}</span> → <span>{correct}</span></li>"
+            spacing_html += "</ul></div>"
         
         st.markdown(f"""
             <div class="analysis-card">
                 <h3>🔍 발견된 패턴:</h3>
-                <div class="highlighted-text" style="
-                    background-color: #2A2A2A;
-                    padding: 15px;
-                    border-radius: 8px;
-                    margin: 10px 0;
-                    line-height: 1.6;
-                    font-family: 'Noto Sans KR', sans-serif;">
-                    {highlighted_text}
-                </div>
+                <div class="highlighted-text">{highlighted_text}</div>
                 <p>📊 위험도: <span class="{danger_level_class}">{pattern['danger_level']}</span></p>
                 <p>🎯 일치율: {match_percentage}%</p>
                 <p>📝 분석: {pattern['analysis']}</p>
