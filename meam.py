@@ -662,17 +662,19 @@ def analyze_file_contents(file_content, data):
             
             # 로그 컨테이너 생성
             log_container = st.empty()
-            def update_log(message):
+            def update_log(message, filename=""):
+                prefix = f"[{filename}] " if filename else ""
                 log_container.markdown(f"""
                     <div style="background-color: #2D2D2D; padding: 10px; border-radius: 5px; margin: 5px 0;">
-                        {message}
+                        {prefix}{message}
                     </div>
                 """, unsafe_allow_html=True)
 
-            update_log("📂 파일 로딩 및 패턴 최적화 중...")
-            
             # 파일 로드 최적화
             dfs = []
+            filename = getattr(file_content, 'name', '알 수 없는 파일')
+            update_log("📂 파일 로딩 및 패턴 최적화 중...", filename)
+            
             if hasattr(file_content, 'name'):  # 단일 파일
                 file_type = file_content.name.split('.')[-1].lower()
                 if file_type == 'csv':
@@ -685,20 +687,22 @@ def analyze_file_contents(file_content, data):
                     dfs.append(df)
                 elif file_type == 'zip':  # ZIP 파일(폴더) 처리
                     with zipfile.ZipFile(file_content) as z:
-                        for filename in z.namelist():
-                            if filename.endswith(('.csv', '.xlsx', '.xls')):
-                                with z.open(filename) as f:
-                                    if filename.endswith('.csv'):
+                        for zip_filename in z.namelist():
+                            if zip_filename.endswith(('.csv', '.xlsx', '.xls')):
+                                with z.open(zip_filename) as f:
+                                    if zip_filename.endswith('.csv'):
                                         df = pd.read_csv(io.BytesIO(f.read()), dtype=str)
                                     else:
                                         df = pd.read_excel(io.BytesIO(f.read()), dtype=str)
-                                    df['source_file'] = filename
+                                    df['source_file'] = zip_filename
                                     dfs.append(df)
 
             if not dfs:
-                st.error("지원하지 않는 파일 형식이거나 처리할 수 있는 파일이 없습니다.")
+                update_log(f"⚠️ 지원하지 않는 파일 형식이거나 처리할 수 있는 파일이 없습니다.", filename)
                 return None
                 
+            update_log(f"🔍 {len(dfs)}개의 파일을 로드했습니다.", filename)
+            
             # 모든 데이터프레임 병합
             df = pd.concat(dfs, ignore_index=True)
 
@@ -713,7 +717,7 @@ def analyze_file_contents(file_content, data):
                     if len(word) >= 2:
                         pattern_lookup[word].append((idx, words))
 
-            update_log("🚀 초고속 분석 시작...")
+            update_log("🚀 초고속 분석 시작...", filename)
 
             # 텍스트 컬럼 처리
             text_columns = df.select_dtypes(include=['object']).columns
@@ -723,7 +727,7 @@ def analyze_file_contents(file_content, data):
             progress_bar = st.progress(0)
             progress_text = st.empty()
             
-            def analyze_text_batch(texts, batch_idx, total_batches):
+            def analyze_text_batch(texts, batch_idx, total_batches, source_file):
                 """텍스트 배치 고속 분석"""
                 batch_results = []
                 potential_matches = defaultdict(set)
@@ -776,7 +780,7 @@ def analyze_file_contents(file_content, data):
                                     'danger_level': danger_level,
                                     'url': pattern_item.get('url', ''),
                                     'match_score': match_score,
-                                    'source_file': df.iloc[text_idx].get('source_file', 'Unknown')
+                                    'source_file': source_file
                                 })
                 
                 return batch_results
@@ -791,21 +795,24 @@ def analyze_file_contents(file_content, data):
                     continue
                     
                 texts = df[col].dropna().tolist()
+                source_files = df.loc[df[col].notna(), 'source_file'].tolist()
                 total_batches = (len(texts) + batch_size - 1) // batch_size
                 
                 for batch_idx in range(total_batches):
                     start_idx = batch_idx * batch_size
                     end_idx = min((batch_idx + 1) * batch_size, len(texts))
                     batch_texts = texts[start_idx:end_idx]
+                    batch_sources = source_files[start_idx:end_idx]
                     
                     # 배치 분석
-                    results = analyze_text_batch(batch_texts, batch_idx, total_batches)
-                    if results:
-                        # 컬럼 정보 추가
-                        for r in results:
-                            r['column'] = col
-                        all_results.extend(results)
-                        total_patterns_found += len(results)
+                    for text, source_file in zip(batch_texts, batch_sources):
+                        results = analyze_text_batch([text], 0, 1, source_file)
+                        if results:
+                            # 컬럼 정보 추가
+                            for r in results:
+                                r['column'] = col
+                            all_results.extend(results)
+                            total_patterns_found += len(results)
                     
                     # 진행률 업데이트
                     processed_rows += len(batch_texts)
@@ -820,7 +827,7 @@ def analyze_file_contents(file_content, data):
                             - 처리 속도: {speed:.0f} 행/초
                             - 처리된 행: {processed_rows:,}/{total_rows:,}
                             - 발견된 패턴: {total_patterns_found:,}개
-                        """)
+                        """, filename)
             
             # 최종 결과 정리
             progress_bar.empty()
@@ -831,7 +838,7 @@ def analyze_file_contents(file_content, data):
                 seen = set()
                 unique_results = []
                 for r in sorted(all_results, key=lambda x: (-x['match_score'], -x['danger_level'])):
-                    key = (r['text'], r['pattern'])
+                    key = (r['text'], r['pattern'], r['source_file'])
                     if key not in seen:
                         seen.add(key)
                         unique_results.append(r)
@@ -843,18 +850,19 @@ def analyze_file_contents(file_content, data):
                     - 처리 속도: {total_rows/total_time:.0f} 행/초
                     - 총 처리된 행: {processed_rows:,}개
                     - 발견된 패턴: {total_patterns_found:,}개
-                """)
+                """, filename)
                 
                 return {
                     'total_patterns': len(unique_results),
-                    'results': unique_results[:1000]  # 상위 1000개 결과만 반환
+                    'results': unique_results[:1000],
+                    'filename': filename
                 }
             else:
-                update_log("⚠️ 발견된 패턴이 없습니다.")
+                update_log(f"⚠️ {filename}에서 발견된 패턴이 없습니다.")
                 return None
             
         except Exception as e:
-            st.error(f"파일 분석 중 오류가 발생했습니다: {str(e)}")
+            st.error(f"'{filename}' 파일 분석 중 오류가 발생했습니다: {str(e)}")
             import traceback
             st.error(f"상세 오류: {traceback.format_exc()}")
             return None
@@ -863,10 +871,231 @@ def analyze_file_contents(file_content, data):
 import streamlit as st
 import html
 
+def analyze_file_contents(file_content, data):
+    """파일 내용 분석 - 초고속 버전 (폴더 및 타입 체크 지원)"""
+    import time
+    from collections import defaultdict
+    import numpy as np
+    import zipfile
+    import io
+    
+    if file_content is not None:
+        try:
+            start_time = time.time()
+            
+            # 로그 컨테이너 생성
+            log_container = st.empty()
+            def update_log(message, filename=""):
+                prefix = f"[{filename}] " if filename else ""
+                log_container.markdown(f"""
+                    <div style="background-color: #2D2D2D; padding: 10px; border-radius: 5px; margin: 5px 0;">
+                        {prefix}{message}
+                    </div>
+                """, unsafe_allow_html=True)
+
+            # 파일 로드 최적화
+            dfs = []
+            filename = getattr(file_content, 'name', '알 수 없는 파일')
+            update_log("📂 파일 로딩 및 패턴 최적화 중...", filename)
+            
+            if hasattr(file_content, 'name'):  # 단일 파일
+                file_type = file_content.name.split('.')[-1].lower()
+                if file_type == 'csv':
+                    df = pd.read_csv(file_content, dtype=str)
+                    df['source_file'] = file_content.name
+                    dfs.append(df)
+                elif file_type in ['xlsx', 'xls']:
+                    df = pd.read_excel(file_content, dtype=str)
+                    df['source_file'] = file_content.name
+                    dfs.append(df)
+                elif file_type == 'zip':  # ZIP 파일(폴더) 처리
+                    with zipfile.ZipFile(file_content) as z:
+                        for zip_filename in z.namelist():
+                            if zip_filename.endswith(('.csv', '.xlsx', '.xls')):
+                                with z.open(zip_filename) as f:
+                                    if zip_filename.endswith('.csv'):
+                                        df = pd.read_csv(io.BytesIO(f.read()), dtype=str)
+                                    else:
+                                        df = pd.read_excel(io.BytesIO(f.read()), dtype=str)
+                                    df['source_file'] = zip_filename
+                                    dfs.append(df)
+
+            if not dfs:
+                update_log(f"⚠️ 지원하지 않는 파일 형식이거나 처리할 수 있는 파일이 없습니다.", filename)
+                return None
+                
+            update_log(f"🔍 {len(dfs)}개의 파일을 로드했습니다.", filename)
+            
+            # 모든 데이터프레임 병합
+            df = pd.concat(dfs, ignore_index=True)
+
+            # 패턴 데이터 전처리 및 최적화
+            pattern_lookup = defaultdict(list)
+            for idx, item in enumerate(data):
+                pattern_text = str(item.get('text', '')).lower()
+                words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text).split())
+                
+                # 각 단어를 키로 사용하여 패턴 인덱스 저장
+                for word in words:
+                    if len(word) >= 2:
+                        pattern_lookup[word].append((idx, words))
+
+            update_log("🚀 초고속 분석 시작...", filename)
+
+            # 텍스트 컬럼 처리
+            text_columns = df.select_dtypes(include=['object']).columns
+            total_patterns_found = 0
+            all_results = []
+            
+            progress_bar = st.progress(0)
+            progress_text = st.empty()
+            
+            def analyze_text_batch(texts, batch_idx, total_batches, source_file):
+                """텍스트 배치 고속 분석"""
+                batch_results = []
+                potential_matches = defaultdict(set)
+                
+                # 1단계: 빠른 키워드 매칭
+                for text_idx, text in enumerate(texts):
+                    # 숫자형 데이터 처리
+                    if isinstance(text, (int, float)):
+                        text = str(text)
+                    # None 값 처리    
+                    if not isinstance(text, str):
+                        continue
+                        
+                    text_lower = text.lower()
+                    words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', text_lower).split())
+                    
+                    # 각 단어에 대해 가능한 패턴 찾기
+                    for word in words:
+                        if len(word) >= 2 and word in pattern_lookup:
+                            for pattern_idx, pattern_words in pattern_lookup[word]:
+                                potential_matches[text_idx].add(pattern_idx)
+                
+                # 2단계: 정확한 매칭 검사
+                for text_idx, pattern_indices in potential_matches.items():
+                    text = texts[text_idx]
+                    if isinstance(text, (int, float)):
+                        text = str(text)
+                    text_lower = text.lower()
+                    text_words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', text_lower).split())
+                    
+                    for pattern_idx in pattern_indices:
+                        pattern_item = data[pattern_idx]
+                        pattern_text = str(pattern_item['text']).lower()
+                        pattern_words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text).split())
+                        
+                        # 워드 매칭 스코어 계산
+                        common_words = text_words & pattern_words
+                        if common_words:
+                            match_score = len(common_words) / len(pattern_words)
+                            if match_score >= 0.7:  # 임계값
+                                try:
+                                    danger_level = int(pattern_item.get('dangerlevel', 0))
+                                except (ValueError, TypeError):
+                                    danger_level = 0
+                                    
+                                batch_results.append({
+                                    'text': text,
+                                    'pattern': pattern_item['text'],
+                                    'analysis': pattern_item['output'],
+                                    'danger_level': danger_level,
+                                    'url': pattern_item.get('url', ''),
+                                    'match_score': match_score,
+                                    'source_file': source_file
+                                })
+                
+                return batch_results
+
+            # 병렬 처리를 위한 배치 처리
+            total_rows = df[text_columns].notna().sum().sum()
+            processed_rows = 0
+            batch_size = 5000  # 대용량 배치
+            
+            for col_idx, col in enumerate(text_columns):
+                if col == 'source_file':  # source_file 컬럼 제외
+                    continue
+                    
+                texts = df[col].dropna().tolist()
+                source_files = df.loc[df[col].notna(), 'source_file'].tolist()
+                total_batches = (len(texts) + batch_size - 1) // batch_size
+                
+                for batch_idx in range(total_batches):
+                    start_idx = batch_idx * batch_size
+                    end_idx = min((batch_idx + 1) * batch_size, len(texts))
+                    batch_texts = texts[start_idx:end_idx]
+                    batch_sources = source_files[start_idx:end_idx]
+                    
+                    # 배치 분석
+                    for text, source_file in zip(batch_texts, batch_sources):
+                        results = analyze_text_batch([text], 0, 1, source_file)
+                        if results:
+                            # 컬럼 정보 추가
+                            for r in results:
+                                r['column'] = col
+                            all_results.extend(results)
+                            total_patterns_found += len(results)
+                    
+                    # 진행률 업데이트
+                    processed_rows += len(batch_texts)
+                    progress = min(processed_rows / total_rows, 1.0)
+                    progress_bar.progress(progress)
+                    
+                    if batch_idx % 2 == 0:  # 로그 업데이트 빈도 조절
+                        elapsed_time = time.time() - start_time
+                        speed = processed_rows / elapsed_time if elapsed_time > 0 else 0
+                        update_log(f"""
+                            📊 분석 진행 중:
+                            - 처리 속도: {speed:.0f} 행/초
+                            - 처리된 행: {processed_rows:,}/{total_rows:,}
+                            - 발견된 패턴: {total_patterns_found:,}개
+                        """, filename)
+            
+            # 최종 결과 정리
+            progress_bar.empty()
+            progress_text.empty()
+            
+            if all_results:
+                # 최종 정렬 및 중복 제거
+                seen = set()
+                unique_results = []
+                for r in sorted(all_results, key=lambda x: (-x['match_score'], -x['danger_level'])):
+                    key = (r['text'], r['pattern'], r['source_file'])
+                    if key not in seen:
+                        seen.add(key)
+                        unique_results.append(r)
+                
+                total_time = time.time() - start_time
+                update_log(f"""
+                    ✅ 분석 완료:
+                    - 처리 시간: {total_time:.1f}초
+                    - 처리 속도: {total_rows/total_time:.0f} 행/초
+                    - 총 처리된 행: {processed_rows:,}개
+                    - 발견된 패턴: {total_patterns_found:,}개
+                """, filename)
+                
+                return {
+                    'total_patterns': len(unique_results),
+                    'results': unique_results[:1000],
+                    'filename': filename
+                }
+            else:
+                update_log(f"⚠️ {filename}에서 발견된 패턴이 없습니다.")
+                return None
+            
+        except Exception as e:
+            st.error(f"'{filename}' 파일 분석 중 오류가 발생했습니다: {str(e)}")
+            import traceback
+            st.error(f"상세 오류: {traceback.format_exc()}")
+            return None
+    return None
+
 def display_file_analysis_results(analysis_results):
     """파일 분석 결과 표시 - 개선된 버전"""
     if not analysis_results or not analysis_results['results']:
-        st.warning("🔍 분석 결과가 없습니다.")
+        filename = analysis_results.get('filename', '알 수 없는 파일') if analysis_results else '알 수 없는 파일'
+        st.warning(f"🔍 '{filename}'에서 분석 결과가 없습니다.")
         return
 
     # 통계 계산
@@ -897,32 +1126,46 @@ def display_file_analysis_results(analysis_results):
             border_color = "#00E676"
 
         if results:
-            st.markdown(f"<h3 style='color:{border_color}; border-left: 6px solid {border_color}; padding-left: 10px;'>{title} ({len(results)}개)</h3>", unsafe_allow_html=True)
-
+            # 파일별 그룹화
+            file_groups = {}
             for result in results:
-                match_percentage = int(result['match_score'] * 100)
+                source_file = result.get('source_file', '알 수 없는 파일')
+                if source_file not in file_groups:
+                    file_groups[source_file] = []
+                file_groups[source_file].append(result)
 
-                with st.container():
-                    # 위험도, 일치율, 컬럼 정보 표시
-                    cols = st.columns([2, 1, 1])
-                    with cols[0]:
-                        if result['danger_level'] >= 70:
-                            danger_level_text = "위험"
-                            danger_level_color = "#FF5252"
-                        elif result['danger_level'] >= 30:
-                            danger_level_text = "주의"
-                            danger_level_color = "#FFD700"
-                        else:
-                            danger_level_text = "안전"
-                            danger_level_color = "#00E676"
-                        st.markdown(f"<p style='color:#FFFFFF;'><strong>위험도:</strong> <span style='color:{danger_level_color}; font-weight:bold;'>{danger_level_text}</span></p>", unsafe_allow_html=True)
-                    with cols[1]:
-                        st.markdown(f"<p style='color:#FFFFFF;'><strong>일치율:</strong> {match_percentage}%</p>", unsafe_allow_html=True)
-                    with cols[2]:
-                        st.markdown(f"<p style='color:#FFFFFF;'><strong>컬럼:</strong> {html.escape(result['column'])}</p>", unsafe_allow_html=True)
+            # 파일별로 결과 표시
+            for source_file, file_results in file_groups.items():
+                st.markdown(f"""
+                    <h3 style='color:{border_color}; border-left: 6px solid {border_color}; padding-left: 10px;'>
+                        {title} - {source_file} ({len(file_results)}개)
+                    </h3>
+                """, unsafe_allow_html=True)
 
-                    # 원본 텍스트 섹션
-                    st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>원본 텍스트:</div>", unsafe_allow_html=True)
+                for result in file_results:
+                    match_percentage = int(result['match_score'] * 100)
+
+                    with st.container():
+                        # 위험도, 일치율, 컬럼 정보 표시
+                        cols = st.columns([2, 1, 1])
+                        with cols[0]:
+                            if result['danger_level'] >= 70:
+                                danger_level_text = "위험"
+                                danger_level_color = "#FF5252"
+                            elif result['danger_level'] >= 30:
+                                danger_level_text = "주의"
+                                danger_level_color = "#FFD700"
+                            else:
+                                danger_level_text = "안전"
+                                danger_level_color = "#00E676"
+                            st.markdown(f"<p style='color:#FFFFFF;'><strong>위험도:</strong> <span style='color:{danger_level_color}; font-weight:bold;'>{danger_level_text}</span></p>", unsafe_allow_html=True)
+                        with cols[1]:
+                            st.markdown(f"<p style='color:#FFFFFF;'><strong>일치율:</strong> {match_percentage}%</p>", unsafe_allow_html=True)
+                        with cols[2]:
+                            st.markdown(f"<p style='color:#FFFFFF;'><strong>컬럼:</strong> {html.escape(result['column'])}</p>", unsafe_allow_html=True)
+
+                        # 원본 텍스트 섹션
+                        st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>원본 텍스트:</div>", unsafe_allow_html=True)
                     st.markdown(f"<div style='white-space: pre-wrap; font-family: \"Noto Sans KR\", sans-serif; background-color: #333333; padding: 10px; border-radius: 5px; color: #FFFFFF;'>{html.escape(result['text'])}</div>", unsafe_allow_html=True)
 
                     # 매칭된 패턴 섹션
