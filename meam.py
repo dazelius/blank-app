@@ -1050,8 +1050,6 @@ def display_file_analysis_results(analysis_results):
             st.warning(f"🔍 '{filename}'에서 분석 결과가 없습니다.")
             return
 
-        # analysis_results에서 total_patterns 직접 가져오기
-        total_patterns = analysis_results.get('total_patterns', 0)
         results = analysis_results['results']
         
         # 통계 계산
@@ -1068,7 +1066,7 @@ def display_file_analysis_results(analysis_results):
         
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("총 발견된 패턴", f"{total_patterns}개")
+            st.metric("발견된 패턴", f"{len(results)}개")
         with col2:
             st.metric("평균 위험도", f"{avg_score:.1f}")
         with col3:
@@ -1107,17 +1105,17 @@ def display_file_analysis_results(analysis_results):
             ]
 
             for severity, title, border_color in severity_info:
-                results = severity_groups[severity]
-                if not results:
+                results_by_severity = severity_groups[severity]
+                if not results_by_severity:
                     continue
 
                 st.markdown(f"""
                     <h3 style='color:{border_color}; border-left: 6px solid {border_color}; padding-left: 10px; margin-top: 20px;'>
-                        {title} ({len(results)}개)
+                        {title} ({len(results_by_severity)}개)
                     </h3>
                 """, unsafe_allow_html=True)
 
-                for result in results:
+                for result in results_by_severity:
                     match_percentage = int(result['match_score'] * 100)
 
                     with st.container():
@@ -1166,10 +1164,10 @@ def display_file_analysis_results(analysis_results):
                     st.markdown("<hr style='border: none; height: 1px; background-color: #555555;'>", unsafe_allow_html=True)
 
         # 분석 완료 메시지
-        if analysis_results.get('total_patterns', 0) > 0:
+        if results:
             st.success(f"""
                 ✨ 분석이 완료되었습니다!
-                - 총 {total_patterns}개의 패턴 발견
+                - {len(results)}개의 패턴 발견
                 - 평균 위험도: {avg_score:.1f}
                 - 고위험 패턴: {high_risk_count}개
             """)
