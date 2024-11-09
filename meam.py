@@ -796,7 +796,7 @@ def analyze_file_contents(file_content, data):
                 
                 total_time = time.time() - start_time
                 update_log(f"""
-                    ✅ 분석 완료:
+                    ⚠️ 분석 완료:
                     - 처리 시간: {total_time:.1f}초
                     - 처리 속도: {total_rows/total_time:.0f} 행/초
                     - 총 처리된 행: {processed_rows:,}개
@@ -1032,7 +1032,7 @@ def analyze_file_contents(file_content, data):
                     'filename': filename
                 }
             else:
-                update_log(f"⚠️ {filename}에서 발견된 패턴이 없습니다.")
+                update_log(f"✅ {filename}에서 발견된 패턴이 없습니다.")
                 return None
             
         except Exception as e:
@@ -1235,7 +1235,7 @@ st.markdown("""
 
 
 def main():
-    st.markdown('<h1 class="main-title">⚠️스트링 테이블 분석⚠️</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-title">StringAnalysis</h1>', unsafe_allow_html=True)
     st.markdown("""
     > 💡 입력된 문장을 분석하고 점수화하여 보여드립니다.
     """)
