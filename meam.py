@@ -1301,6 +1301,41 @@ def display_analysis_results(patterns, total_score):
         
         # 매치 점수를 퍼센트로 표시
         match_percentage = int(pattern['match_score'] * 100)
+
+        # 오탈자 및 띄어쓰기 오류 HTML 생성
+        spelling_html = ""
+        if pattern.get('spelling_errors'):
+            spelling_errors = pattern['spelling_errors']
+            spelling_html = """
+                <div style="margin-top: 10px; padding: 10px; background-color: #2A2A2A; border-radius: 5px;">
+                    <h4 style="color: #FFB20F; margin-bottom: 8px;">🔍 발견된 오탈자:</h4>
+                    <ul style="list-style-type: none; padding-left: 0;">
+            """
+            for wrong, correct in spelling_errors:
+                spelling_html += f"""
+                    <li style="margin-bottom: 5px;">
+                        <span style="color: #FF5252;">{wrong}</span> →
+                        <span style="color: #00E676;">{correct}</span>
+                    </li>
+                """
+            spelling_html += "</ul></div>"
+
+        spacing_html = ""
+        if pattern.get('spacing_errors'):
+            spacing_errors = pattern['spacing_errors']
+            spacing_html = """
+                <div style="margin-top: 10px; padding: 10px; background-color: #2A2A2A; border-radius: 5px;">
+                    <h4 style="color: #FFB20F; margin-bottom: 8px;">✍️ 띄어쓰기 제안:</h4>
+                    <ul style="list-style-type: none; padding-left: 0;">
+            """
+            for wrong, correct in spacing_errors:
+                spacing_html += f"""
+                    <li style="margin-bottom: 5px;">
+                        <span style="color: #FF5252;">{wrong}</span> →
+                        <span style="color: #00E676;">{correct}</span>
+                    </li>
+                """
+            spacing_html += "</ul></div>"
         
         st.markdown(f"""
             <div class="analysis-card">
