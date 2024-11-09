@@ -1301,7 +1301,7 @@ def display_analysis_results(patterns, total_score):
         
         st.markdown(f"""
             <div class="analysis-card">
-                <h3>🔍 발견된 패턴:</h3>
+                <h5>🔍 발견된 패턴:</h5>
                 <div class="highlighted-text">{highlighted_text}</div>
                 <p>📊 위험도: <span class="{danger_level_class}">{pattern['danger_level']}</span></p>
                 <p>🎯 일치율: {match_percentage}%</p>
