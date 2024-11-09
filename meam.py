@@ -1308,7 +1308,6 @@ def display_analysis_results(patterns, total_score):
                 <p>📝 분석: {pattern['analysis']}</p>
                 {f'<p>🔗 <a href="{pattern["url"]}" target="_blank">참고 자료</a></p>' if pattern['url'] else ''}
                 {thumbnail_html}
-            </div>
         """, unsafe_allow_html=True)
 
 def main():
