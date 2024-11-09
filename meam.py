@@ -1438,8 +1438,51 @@ def main():
                 
                 if analyze_button and input_text:
                     with st.spinner('🔄 문장을 분석하고 있습니다...'):
+                        # 오탈자/띄어쓰기 검사 함수
+                        def check_text_errors(text):
+                            spelling_errors = []
+                            spacing_errors = []
+                            
+                            # 띄어쓰기 검사
+                            words = text.split()
+                            for i in range(len(words)-1):
+                                compound = words[i] + words[i+1]
+                                if len(compound) >= 4:  # 4글자 이상의 복합어만 검사
+                                    if re.match(r'^[가-힣]+$', compound):  # 한글로만 구성된 경우
+                                        spacing_errors.append((compound, f"{words[i]} {words[i+1]}"))
+                            
+                            # 오탈자 검사
+                            for word in words:
+                                if len(word) >= 2:  # 2글자 이상 단어만 검사
+                                    # 자모음 분리
+                                    try:
+                                        code = ord(word[0]) - 0xAC00
+                                        if 0 <= code <= 11171:  # 한글인 경우
+                                            cho = code // 588
+                                            jung = (code % 588) // 28
+                                            # 비슷한 자모음 체크 (예: ㅔ/ㅐ, ㅂ/ㅃ 등)
+                                            similar_chars = {
+                                                'ㅔ': 'ㅐ', 'ㅐ': 'ㅔ',
+                                                'ㅖ': 'ㅒ', 'ㅒ': 'ㅖ',
+                                                'ㅚ': 'ㅙ', 'ㅙ': 'ㅚ',
+                                                'ㅣ': 'ㅏ', 'ㅏ': 'ㅣ'
+                                            }
+                                            if chr(cho) in similar_chars:
+                                                suggested = word.replace(chr(cho), similar_chars[chr(cho)])
+                                                spelling_errors.append((word, suggested))
+                                    except:
+                                        continue
+                            
+                            return spelling_errors, spacing_errors
+
                         found_patterns = find_matching_patterns(input_text, data)
                         if found_patterns:
+                            # 각 패턴에 오탈자/띄어쓰기 정보 추가
+                            for pattern in found_patterns:
+                                spelling_errors, spacing_errors = check_text_errors(pattern['original_text'])
+                                pattern['spelling_errors'] = spelling_errors
+                                pattern['spacing_errors'] = spacing_errors
+                                
                             total_score = calculate_danger_score(found_patterns)
                             st.success(f"🎯 분석이 완료되었습니다! {len(found_patterns)}개의 패턴이 발견되었습니다.")
                             display_analysis_results(found_patterns, total_score)
@@ -1479,11 +1522,17 @@ def main():
                             progress_bar.progress(progress)
                             progress_text.text(f"파일 분석 중... ({idx + 1}/{len(uploaded_files)}): {file.name}")
                             
-                            with st.spinner(f'🔄 {file.name} 분석 중...'):
-                                analysis_result = analyze_file_contents(file, data)
-                                if analysis_result and analysis_result['total_patterns'] > 0:
-                                    all_results.extend(analysis_result['results'])
-                                    total_patterns += analysis_result['total_patterns']
+                        with st.spinner(f'🔄 {file.name} 분석 중...'):
+                            analysis_result = analyze_file_contents(file, data)
+                            if analysis_result and analysis_result['total_patterns'] > 0:
+                                # 각 결과에 오탈자/띄어쓰기 정보 추가
+                                for result in analysis_result['results']:
+                                    spelling_errors, spacing_errors = check_text_errors(result['text'])
+                                    result['spelling_errors'] = spelling_errors
+                                    result['spacing_errors'] = spacing_errors
+                                
+                                all_results.extend(analysis_result['results'])
+                                total_patterns += analysis_result['total_patterns']
                         
                         progress_bar.empty()
                         progress_text.empty()
