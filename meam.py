@@ -1281,7 +1281,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def display_analysis_results(patterns, total_score):
-    """분석 결과 표시 - 오탈자/띄어쓰기 및 하이라이트 기능 추가"""
+    """분석 결과 표시 - 오탈자 및 하이라이트 기능 추가"""
     danger_level_class = get_danger_level_class(total_score)
     st.markdown(f"""
         <div class="danger-meter">
@@ -1305,13 +1305,6 @@ def display_analysis_results(patterns, total_score):
             for wrong, correct in pattern['spelling_errors']:
                 spelling_html += f"<li><span>{wrong}</span> → <span>{correct}</span></li>"
             spelling_html += "</ul></div>"
-
-        spacing_html = ""
-        if pattern.get('spacing_errors'):
-            spacing_html = "<div><h4>✍️ 띄어쓰기 제안:</h4><ul>"
-            for wrong, correct in pattern['spacing_errors']:
-                spacing_html += f"<li><span>{wrong}</span> → <span>{correct}</span></li>"
-            spacing_html += "</ul></div>"
         
         st.markdown(f"""
             <div class="analysis-card">
@@ -1321,7 +1314,6 @@ def display_analysis_results(patterns, total_score):
                 <p>🎯 일치율: {match_percentage}%</p>
                 <p>📝 분석: {pattern['analysis']}</p>
                 {spelling_html}
-                {spacing_html}
                 {f'<p>🔗 <a href="{pattern["url"]}" target="_blank">참고 자료</a></p>' if pattern['url'] else ''}
                 {thumbnail_html}
             </div>
