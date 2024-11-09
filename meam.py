@@ -1091,7 +1091,7 @@ def analyze_file_contents(file_content, data):
     return None
 
 def display_file_analysis_results(analysis_results):
-    """파일 분석 결과 표시 - 개선된 버전"""
+    """파일 분석 결과 표시 - 개선된 버전 (오탈자/띄어쓰기 검사 포함)"""
     try:
         if not analysis_results or not analysis_results['results']:
             filename = analysis_results.get('filename', '알 수 없는 파일') if analysis_results else '알 수 없는 파일'
@@ -1183,6 +1183,37 @@ def display_file_analysis_results(analysis_results):
                             st.markdown(f"<div style='white-space: pre-wrap; font-family: \"Noto Sans KR\", sans-serif; background-color: #333333; padding: 10px; border-radius: 5px; color: #FFFFFF;'>{highlighted_text}</div>", unsafe_allow_html=True)
                         except:
                             st.markdown(f"<div style='white-space: pre-wrap; font-family: \"Noto Sans KR\", sans-serif; background-color: #333333; padding: 10px; border-radius: 5px; color: #FFFFFF;'>{html.escape(result['text'])}</div>", unsafe_allow_html=True)
+
+                        # 오탈자 및 띄어쓰기 오류 표시
+                        if result.get('spelling_errors'):
+                            st.markdown("""
+                                <div style='font-weight:bold; margin-top: 10px; color: #FFB20F;'>
+                                    🔍 발견된 오탈자:
+                                </div>
+                            """, unsafe_allow_html=True)
+                            
+                            for wrong, correct in result['spelling_errors']:
+                                st.markdown(f"""
+                                    <div style='background-color: #2A2A2A; padding: 8px; border-radius: 5px; margin: 5px 0;'>
+                                        <span style='color: #FF5252;'>{html.escape(wrong)}</span> →
+                                        <span style='color: #00E676;'>{html.escape(correct)}</span>
+                                    </div>
+                                """, unsafe_allow_html=True)
+
+                        if result.get('spacing_errors'):
+                            st.markdown("""
+                                <div style='font-weight:bold; margin-top: 10px; color: #FFB20F;'>
+                                    ✍️ 띄어쓰기 제안:
+                                </div>
+                            """, unsafe_allow_html=True)
+                            
+                            for wrong, correct in result['spacing_errors']:
+                                st.markdown(f"""
+                                    <div style='background-color: #2A2A2A; padding: 8px; border-radius: 5px; margin: 5px 0;'>
+                                        <span style='color: #FF5252;'>{html.escape(wrong)}</span> →
+                                        <span style='color: #00E676;'>{html.escape(correct)}</span>
+                                    </div>
+                                """, unsafe_allow_html=True)
 
                         # 매칭된 패턴 섹션
                         st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>매칭된 패턴:</div>", unsafe_allow_html=True)
