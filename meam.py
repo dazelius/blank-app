@@ -1050,11 +1050,28 @@ def display_file_analysis_results(analysis_results):
         return
 
     try:
+        # 총 패턴 수를 analysis_results에서 가져오기
+        total_patterns = len(analysis_results['results'])
+        
         # 통계 계산
         total_score = sum(result['danger_level'] for result in analysis_results['results'])
-        avg_score = total_score / len(analysis_results['results']) if analysis_results['results'] else 0
+        avg_score = total_score / total_patterns if total_patterns > 0 else 0
         high_risk_count = sum(1 for r in analysis_results['results'] if r['danger_level'] >= 70)
-        total_patterns = analysis_results['total_patterns']  # 전체 패턴 수 가져오기
+
+        # 요약 통계 표시
+        st.markdown("""
+            <div style='background-color: #2D2D2D; padding: 15px; border-radius: 10px; margin-bottom: 20px;'>
+                <h3 style='color: #E0E0E0; margin-bottom: 10px;'>📊 분석 결과 요약</h3>
+                <div style='display: flex; justify-content: space-between;'>
+            """, unsafe_allow_html=True)
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("총 발견된 패턴", f"{total_patterns}개")
+        with col2:
+            st.metric("평균 위험도", f"{avg_score:.1f}")
+        with col3:
+            st.metric("고위험 패턴", f"{high_risk_count}개")
 
         # 결과 정렬 및 그룹화
         sorted_results = sorted(
@@ -1080,7 +1097,7 @@ def display_file_analysis_results(analysis_results):
         # 파일별로 결과 표시
         for source_file, severity_groups in file_groups.items():
             st.markdown(f"""
-                <h2 style='color:#E0E0E0; border-bottom: 2px solid #555555; padding-bottom: 10px;'>
+                <h2 style='color:#E0E0E0; border-bottom: 2px solid #555555; padding-bottom: 10px; margin-top: 30px;'>
                     📄 {html.escape(source_file)}
                 </h2>
             """, unsafe_allow_html=True)
@@ -1105,7 +1122,7 @@ def display_file_analysis_results(analysis_results):
                     border_color = "#00E676"
 
                 st.markdown(f"""
-                    <h3 style='color:{border_color}; border-left: 6px solid {border_color}; padding-left: 10px;'>
+                    <h3 style='color:{border_color}; border-left: 6px solid {border_color}; padding-left: 10px; margin-top: 20px;'>
                         {title} ({len(results)}개)
                     </h3>
                 """, unsafe_allow_html=True)
@@ -1160,10 +1177,10 @@ def display_file_analysis_results(analysis_results):
                     st.markdown("<hr style='border: none; height: 1px; background-color: #555555;'>", unsafe_allow_html=True)
 
         # 분석 완료 메시지
-        if analysis_results['total_patterns'] > 0:
+        if total_patterns > 0:
             st.success(f"""
-                ✨ 분석 완료:
-                - 총 패턴 수: {analysis_results['total_patterns']}개
+                ✨ 분석이 완료되었습니다!
+                - 총 {total_patterns}개의 패턴 발견
                 - 평균 위험도: {avg_score:.1f}
                 - 고위험 패턴: {high_risk_count}개
             """)
