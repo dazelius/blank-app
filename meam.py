@@ -819,12 +819,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def analyze_file_contents(file_content, data):
-    """파일 내용 분석 - 초고속 버전 (폴더 및 타입 체크 지원)"""
+    """파일 내용 분석 - 초고속 버전 (맞춤법 검사 포함)"""
     import time
     from collections import defaultdict
     import numpy as np
     import zipfile
     import io
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     
     if file_content is not None:
         try:
@@ -845,7 +846,10 @@ def analyze_file_contents(file_content, data):
             filename = getattr(file_content, 'name', '알 수 없는 파일')
             update_log("📂 파일 로딩 및 패턴 최적화 중...", filename)
             
-            if hasattr(file_content, 'name'):  # 단일 파일
+            # 맞춤법 검사기 초기화
+            spell_checker = SheetBasedSpellChecker()
+            
+            if hasattr(file_content, 'name'):
                 file_type = file_content.name.split('.')[-1].lower()
                 if file_type == 'csv':
                     df = pd.read_csv(file_content, dtype=str)
@@ -855,7 +859,7 @@ def analyze_file_contents(file_content, data):
                     df = pd.read_excel(file_content, dtype=str)
                     df['source_file'] = file_content.name
                     dfs.append(df)
-                elif file_type == 'zip':  # ZIP 파일(폴더) 처리
+                elif file_type == 'zip':
                     with zipfile.ZipFile(file_content) as z:
                         for zip_filename in z.namelist():
                             if zip_filename.endswith(('.csv', '.xlsx', '.xls')):
@@ -882,7 +886,6 @@ def analyze_file_contents(file_content, data):
                 pattern_text = str(item.get('text', '')).lower()
                 words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text).split())
                 
-                # 각 단어를 키로 사용하여 패턴 인덱스 저장
                 for word in words:
                     if len(word) >= 2:
                         pattern_lookup[word].append((idx, words))
@@ -900,118 +903,156 @@ def analyze_file_contents(file_content, data):
             def analyze_text_batch(texts, batch_idx, total_batches, source_file):
                 """텍스트 배치 고속 분석"""
                 batch_results = []
-                potential_matches = defaultdict(set)
                 
-                # 1단계: 빠른 키워드 매칭
-                for text_idx, text in enumerate(texts):
-                    # 숫자형 데이터 처리
-                    if isinstance(text, (int, float)):
-                        text = str(text)
-                    # None 값 처리    
-                    if not isinstance(text, str):
-                        continue
-                        
-                    text_lower = text.lower()
-                    words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', text_lower).split())
+                for text in texts:
+                    # 패턴 매칭 분석
+                    pattern_results = analyze_single_text(text, pattern_lookup, data)
+                    if pattern_results:
+                        for result in pattern_results:
+                            result['source_file'] = source_file
+                        batch_results.extend(pattern_results)
                     
-                    # 각 단어에 대해 가능한 패턴 찾기
-                    for word in words:
-                        if len(word) >= 2 and word in pattern_lookup:
-                            for pattern_idx, pattern_words in pattern_lookup[word]:
-                                potential_matches[text_idx].add(pattern_idx)
-                
-                # 2단계: 정확한 매칭 검사
-                for text_idx, pattern_indices in potential_matches.items():
-                    text = texts[text_idx]
-                    if isinstance(text, (int, float)):
-                        text = str(text)
-                    text_lower = text.lower()
-                    text_words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', text_lower).split())
-                    
-                    for pattern_idx in pattern_indices:
-                        pattern_item = data[pattern_idx]
-                        pattern_text = str(pattern_item['text']).lower()
-                        pattern_words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text).split())
-                        
-                        # 워드 매칭 스코어 계산
-                        common_words = text_words & pattern_words
-                        if common_words:
-                            match_score = len(common_words) / len(pattern_words)
-                            if match_score >= 0.7:  # 임계값
-                                try:
-                                    danger_level = int(pattern_item.get('dangerlevel', 0))
-                                except (ValueError, TypeError):
-                                    danger_level = 0
-                                    
-                                batch_results.append({
-                                    'text': text,
-                                    'pattern': pattern_item['text'],
-                                    'analysis': pattern_item['output'],
-                                    'danger_level': danger_level,
-                                    'url': pattern_item.get('url', ''),
-                                    'match_score': match_score,
-                                    'source_file': source_file
-                                })
+                    # 맞춤법 검사
+                    spell_check_result = spell_checker.check(text)
+                    if spell_check_result['corrections']:
+                        spell_result = {
+                            'text': text,
+                            'pattern': 'SPELL_CHECK',
+                            'analysis': '맞춤법 오류 발견',
+                            'corrections': spell_check_result['corrections'],
+                            'corrected_text': spell_check_result['corrected'],
+                            'danger_level': 30,  # 맞춤법 오류의 기본 위험도
+                            'match_score': 1.0,
+                            'source_file': source_file,
+                            'is_spell_check': True
+                        }
+                        batch_results.append(spell_result)
                 
                 return batch_results
 
-            # 병렬 처리를 위한 배치 처리
-            total_rows = df[text_columns].notna().sum().sum()
-            processed_rows = 0
-            batch_size = 5000  # 대용량 배치
-            
-            for col_idx, col in enumerate(text_columns):
-                if col == 'source_file':  # source_file 컬럼 제외
-                    continue
+            def analyze_single_text(text, pattern_lookup, data):
+                """단일 텍스트 분석"""
+                if not isinstance(text, str):
+                    return []
                     
-                texts = df[col].dropna().tolist()
-                source_files = df.loc[df[col].notna(), 'source_file'].tolist()
-                total_batches = (len(texts) + batch_size - 1) // batch_size
+                text_lower = text.lower()
+                text_words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', text_lower).split())
+                matches = []
                 
-                for batch_idx in range(total_batches):
-                    start_idx = batch_idx * batch_size
-                    end_idx = min((batch_idx + 1) * batch_size, len(texts))
-                    batch_texts = texts[start_idx:end_idx]
-                    batch_sources = source_files[start_idx:end_idx]
+                # 빠른 키워드 매칭
+                potential_patterns = set()
+                for word in text_words:
+                    if len(word) >= 2 and word in pattern_lookup:
+                        for pattern_idx, pattern_words in pattern_lookup[word]:
+                            potential_patterns.add(pattern_idx)
+                
+                # 정확한 매칭 검사
+                for pattern_idx in potential_patterns:
+                    pattern_item = data[pattern_idx]
+                    pattern_text = str(pattern_item['text']).lower()
+                    pattern_words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text).split())
                     
-                    # 배치 분석
-                    for text, source_file in zip(batch_texts, batch_sources):
-                        results = analyze_text_batch([text], 0, 1, source_file)
+                    common_words = text_words & pattern_words
+                    if common_words:
+                        match_score = len(common_words) / len(pattern_words)
+                        if match_score >= 0.7:
+                            try:
+                                danger_level = int(pattern_item.get('dangerlevel', 0))
+                            except (ValueError, TypeError):
+                                danger_level = 0
+                                
+                            matches.append({
+                                'text': text,
+                                'pattern': pattern_item['text'],
+                                'analysis': pattern_item['output'],
+                                'danger_level': danger_level,
+                                'url': pattern_item.get('url', ''),
+                                'match_score': match_score
+                            })
+                
+                return matches
+
+            # 병렬 처리를 위한 배치 처리
+            batch_size = 1000
+            max_workers = min(32, (os.cpu_count() or 1) * 4)  # CPU 코어 수의 4배까지 스레드 사용
+            
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = []
+                processed_rows = 0
+                
+                for col in text_columns:
+                    if col == 'source_file':
+                        continue
+                        
+                    texts = df[col].dropna().tolist()
+                    source_files = df.loc[df[col].notna(), 'source_file'].tolist()
+                    
+                    for i in range(0, len(texts), batch_size):
+                        batch_texts = texts[i:i + batch_size]
+                        batch_sources = source_files[i:i + batch_size]
+                        
+                        future = executor.submit(
+                            analyze_text_batch,
+                            batch_texts,
+                            i // batch_size,
+                            (len(texts) + batch_size - 1) // batch_size,
+                            batch_sources[0]
+                        )
+                        futures.append(future)
+                
+                # 결과 수집
+                total_rows = len(futures) * batch_size
+                for idx, future in enumerate(as_completed(futures)):
+                    try:
+                        results = future.result()
                         if results:
-                            # 컬럼 정보 추가
-                            for r in results:
-                                r['column'] = col
                             all_results.extend(results)
                             total_patterns_found += len(results)
-                    
-                    # 진행률 업데이트
-                    processed_rows += len(batch_texts)
-                    progress = min(processed_rows / total_rows, 1.0)
-                    progress_bar.progress(progress)
-                    
-                    if batch_idx % 2 == 0:  # 로그 업데이트 빈도 조절
-                        elapsed_time = time.time() - start_time
-                        speed = processed_rows / elapsed_time if elapsed_time > 0 else 0
-                        update_log(f"""
-                            📊 분석 진행 중:
-                            - 처리 속도: {speed:.0f} 행/초
-                            - 처리된 행: {processed_rows:,}/{total_rows:,}
-                            - 발견된 패턴: {total_patterns_found:,}개
-                        """, filename)
+                        
+                        processed_rows += batch_size
+                        progress = min(processed_rows / total_rows, 1.0)
+                        progress_bar.progress(progress)
+                        
+                        if idx % 10 == 0:  # 로그 업데이트 빈도 조절
+                            elapsed_time = time.time() - start_time
+                            speed = processed_rows / elapsed_time if elapsed_time > 0 else 0
+                            update_log(f"""
+                                📊 분석 진행 중:
+                                - 처리 속도: {speed:.0f} 행/초
+                                - 처리된 행: {processed_rows:,}/{total_rows:,}
+                                - 발견된 패턴: {total_patterns_found:,}개
+                            """, filename)
+                    except Exception as e:
+                        st.error(f"배치 처리 중 오류 발생: {str(e)}")
             
             # 최종 결과 정리
             progress_bar.empty()
             progress_text.empty()
             
             if all_results:
-                # 최종 정렬 및 중복 제거
+                # 결과 정렬 및 중복 제거
                 seen = set()
                 unique_results = []
-                for r in sorted(all_results, key=lambda x: (-x['match_score'], -x['danger_level'])):
-                    key = (r['text'], r['pattern'], r['source_file'])
+                
+                # 패턴 매칭과 맞춤법 검사 결과를 분리하여 정렬
+                pattern_results = []
+                spell_check_results = []
+                
+                for r in all_results:
+                    key = (r.get('text', ''), r.get('pattern', ''), r.get('source_file', ''))
                     if key not in seen:
                         seen.add(key)
-                        unique_results.append(r)
+                        if r.get('is_spell_check'):
+                            spell_check_results.append(r)
+                        else:
+                            pattern_results.append(r)
+                
+                # 위험도와 매칭 점수로 정렬
+                pattern_results.sort(key=lambda x: (-x['danger_level'], -x['match_score']))
+                spell_check_results.sort(key=lambda x: len(x['corrections']), reverse=True)
+                
+                # 결과 합치기
+                unique_results = pattern_results + spell_check_results
                 
                 total_time = time.time() - start_time
                 update_log(f"""
@@ -1019,16 +1060,19 @@ def analyze_file_contents(file_content, data):
                     - 처리 시간: {total_time:.1f}초
                     - 처리 속도: {total_rows/total_time:.0f} 행/초
                     - 총 처리된 행: {processed_rows:,}개
-                    - 발견된 패턴: {total_patterns_found:,}개
+                    - 발견된 패턴: {len(pattern_results):,}개
+                    - 맞춤법 오류: {len(spell_check_results):,}개
                 """, filename)
                 
                 return {
                     'total_patterns': len(unique_results),
-                    'results': unique_results[:1000],
-                    'filename': filename
+                    'results': unique_results[:1000],  # 상위 1000개 결과만 반환
+                    'filename': filename,
+                    'pattern_count': len(pattern_results),
+                    'spell_check_count': len(spell_check_results)
                 }
             else:
-                update_log(f"⚠️ {filename}에서 발견된 패턴이 없습니다.")
+                update_log(f"✅ {filename}에서 발견된 패턴이 없습니다.")
                 return None
             
         except Exception as e:
@@ -1262,7 +1306,7 @@ def analyze_file_contents(file_content, data):
     return None
 
 def display_file_analysis_results(analysis_results):
-    """파일 분석 결과 표시 - 개선된 버전"""
+    """파일 분석 결과 표시 - 맞춤법 검사 포함"""
     try:
         if not analysis_results or not analysis_results['results']:
             filename = analysis_results.get('filename', '알 수 없는 파일') if analysis_results else '알 수 없는 파일'
@@ -1271,10 +1315,14 @@ def display_file_analysis_results(analysis_results):
 
         results = analysis_results['results']
         
+        # 결과 분리
+        pattern_results = [r for r in results if not r.get('is_spell_check')]
+        spell_check_results = [r for r in results if r.get('is_spell_check')]
+        
         # 통계 계산
-        total_score = sum(result['danger_level'] for result in results)
-        avg_score = total_score / len(results) if results else 0
-        high_risk_count = sum(1 for r in results if r['danger_level'] >= 70)
+        total_score = sum(result['danger_level'] for result in pattern_results)
+        avg_score = total_score / len(pattern_results) if pattern_results else 0
+        high_risk_count = sum(1 for r in pattern_results if r['danger_level'] >= 70)
         
         # 요약 통계 표시
         st.markdown("""
@@ -1283,116 +1331,156 @@ def display_file_analysis_results(analysis_results):
             </div>
         """, unsafe_allow_html=True)
         
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("발견된 패턴", f"{len(results)}개")
+            st.metric("위험 패턴", f"{len(pattern_results)}개")
         with col2:
             st.metric("평균 위험도", f"{avg_score:.1f}")
         with col3:
             st.metric("고위험 패턴", f"{high_risk_count}개")
+        with col4:
+            st.metric("맞춤법 오류", f"{len(spell_check_results)}개")
 
-        # 결과 정렬 및 그룹화
-        sorted_results = sorted(results, key=lambda x: (x['danger_level'], x['match_score']), reverse=True)
+        # 탭으로 결과 구분
+        tab1, tab2 = st.tabs(["⚠️ 위험 패턴", "📝 맞춤법 오류"])
+        
+        with tab1:
+            if pattern_results:
+                # 파일별 그룹화
+                file_groups = {}
+                for result in pattern_results:
+                    source_file = result.get('source_file', '알 수 없는 파일')
+                    if source_file not in file_groups:
+                        file_groups[source_file] = {'high': [], 'medium': [], 'low': []}
+                    
+                    if result['danger_level'] >= 70:
+                        file_groups[source_file]['high'].append(result)
+                    elif result['danger_level'] >= 30:
+                        file_groups[source_file]['medium'].append(result)
+                    else:
+                        file_groups[source_file]['low'].append(result)
 
-        # 파일별 그룹화
-        file_groups = {}
-        for result in sorted_results:
-            source_file = result.get('source_file', '알 수 없는 파일')
-            if source_file not in file_groups:
-                file_groups[source_file] = {'high': [], 'medium': [], 'low': []}
-            
-            if result['danger_level'] >= 70:
-                file_groups[source_file]['high'].append(result)
-            elif result['danger_level'] >= 30:
-                file_groups[source_file]['medium'].append(result)
-            else:
-                file_groups[source_file]['low'].append(result)
+                # 파일별로 결과 표시
+                for source_file, severity_groups in file_groups.items():
+                    st.markdown(f"""
+                        <h2 style='color:#E0E0E0; border-bottom: 2px solid #555555; padding-bottom: 10px; margin-top: 30px;'>
+                            📄 {html.escape(source_file)}
+                        </h2>
+                    """, unsafe_allow_html=True)
 
-        # 파일별로 결과 표시
-        for source_file, severity_groups in file_groups.items():
-            st.markdown(f"""
-                <h2 style='color:#E0E0E0; border-bottom: 2px solid #555555; padding-bottom: 10px; margin-top: 30px;'>
-                    📄 {html.escape(source_file)}
-                </h2>
-            """, unsafe_allow_html=True)
+                    severity_info = [
+                        ('high', '🚨 고위험 항목', "#FF5252"),
+                        ('medium', '⚠️ 주의 항목', "#FFD700"),
+                        ('low', '✅ 안전 항목', "#00E676")
+                    ]
 
-            # 위험도별 결과 표시
-            severity_info = [
-                ('high', '🚨 고위험 항목', "#FF5252"),
-                ('medium', '⚠️ 주의 항목', "#FFD700"),
-                ('low', '✅ 안전 항목', "#00E676")
-            ]
+                    for severity, title, border_color in severity_info:
+                        results_by_severity = severity_groups[severity]
+                        if not results_by_severity:
+                            continue
 
-            for severity, title, border_color in severity_info:
-                results_by_severity = severity_groups[severity]
-                if not results_by_severity:
-                    continue
+                        st.markdown(f"""
+                            <h3 style='color:{border_color}; border-left: 6px solid {border_color}; padding-left: 10px; margin-top: 20px;'>
+                                {title} ({len(results_by_severity)}개)
+                            </h3>
+                        """, unsafe_allow_html=True)
 
-                st.markdown(f"""
-                    <h3 style='color:{border_color}; border-left: 6px solid {border_color}; padding-left: 10px; margin-top: 20px;'>
-                        {title} ({len(results_by_severity)}개)
-                    </h3>
-                """, unsafe_allow_html=True)
+                        for result in results_by_severity:
+                            match_percentage = int(result['match_score'] * 100)
 
-                for result in results_by_severity:
-                    match_percentage = int(result['match_score'] * 100)
-
-                    with st.container():
-                        # 위험도, 일치율, 컬럼 정보 표시
-                        cols = st.columns([2, 1, 1])
-                        with cols[0]:
-                            st.markdown(f"<p style='color:#FFFFFF;'><strong>위험도:</strong> <span style='color:{border_color}; font-weight:bold;'>{result['danger_level']}</span></p>", unsafe_allow_html=True)
-                        with cols[1]:
-                            st.markdown(f"<p style='color:#FFFFFF;'><strong>일치율:</strong> {match_percentage}%</p>", unsafe_allow_html=True)
-                        with cols[2]:
-                            st.markdown(f"<p style='color:#FFFFFF;'><strong>컬럼:</strong> {html.escape(result['column'])}</p>", unsafe_allow_html=True)
-
-                        # 원본 텍스트와 하이라이트
-                        st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>원본 텍스트:</div>", unsafe_allow_html=True)
-                        try:
-                            highlighted_text = highlight_pattern_in_text(result['text'], result['pattern'])
-                            st.markdown(f"<div style='white-space: pre-wrap; font-family: \"Noto Sans KR\", sans-serif; background-color: #333333; padding: 10px; border-radius: 5px; color: #FFFFFF;'>{highlighted_text}</div>", unsafe_allow_html=True)
-                        except:
-                            st.markdown(f"<div style='white-space: pre-wrap; font-family: \"Noto Sans KR\", sans-serif; background-color: #333333; padding: 10px; border-radius: 5px; color: #FFFFFF;'>{html.escape(result['text'])}</div>", unsafe_allow_html=True)
-
-                        # 매칭된 패턴 섹션
-                        st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>매칭된 패턴:</div>", unsafe_allow_html=True)
-                        st.markdown(f"<div style='background-color: #444444; padding: 8px; border-radius: 5px; color: #FFFFFF;'>{html.escape(result['pattern'])}</div>", unsafe_allow_html=True)
-
-                        # 분석 섹션
-                        st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>분석:</div>", unsafe_allow_html=True)
-                        st.markdown(f"<div style='background-color: rgba{tuple(int(border_color[i:i+2], 16) for i in (1, 3, 5))}, 0.1); padding: 10px; border-radius: 5px; color: #FFFFFF;'>{html.escape(result['analysis'])}</div>", unsafe_allow_html=True)
-
-                        # 썸네일 및 참고 자료 링크
-                        if result.get("url"):
                             with st.container():
-                                # 썸네일 가져오기
-                                thumbnail_url = get_thumbnail_url(result["url"])
-                                if thumbnail_url:
-                                    try:
-                                        response = requests.get(thumbnail_url)
-                                        image = Image.open(BytesIO(response.content))
-                                        st.image(image, width=200, use_column_width=False)
-                                    except:
-                                        pass
+                                cols = st.columns([2, 1, 1])
+                                with cols[0]:
+                                    st.markdown(f"<p style='color:#FFFFFF;'><strong>위험도:</strong> <span style='color:{border_color}; font-weight:bold;'>{result['danger_level']}</span></p>", unsafe_allow_html=True)
+                                with cols[1]:
+                                    st.markdown(f"<p style='color:#FFFFFF;'><strong>일치율:</strong> {match_percentage}%</p>", unsafe_allow_html=True)
+                                with cols[2]:
+                                    st.markdown(f"<p style='color:#FFFFFF;'><strong>컬럼:</strong> {html.escape(result.get('column', 'N/A'))}</p>", unsafe_allow_html=True)
 
-                                # 참고 자료 링크
-                                st.markdown(f"<p><strong>🔗 <a href='{html.escape(result['url'])}' target='_blank' style='color:{border_color};'>참고 자료</a></strong></p>", unsafe_allow_html=True)
+                                st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>원본 텍스트:</div>", unsafe_allow_html=True)
+                                try:
+                                    highlighted_text = highlight_pattern_in_text(result['text'], result['pattern'])
+                                    st.markdown(f"<div style='white-space: pre-wrap; font-family: \"Noto Sans KR\", sans-serif; background-color: #333333; padding: 10px; border-radius: 5px; color: #FFFFFF;'>{highlighted_text}</div>", unsafe_allow_html=True)
+                                except:
+                                    st.markdown(f"<div style='white-space: pre-wrap; font-family: \"Noto Sans KR\", sans-serif; background-color: #333333; padding: 10px; border-radius: 5px; color: #FFFFFF;'>{html.escape(str(result['text']))}</div>", unsafe_allow_html=True)
 
-                    # 구분선
-                    st.markdown("<hr style='border: none; height: 1px; background-color: #555555;'>", unsafe_allow_html=True)
+                                st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>매칭된 패턴:</div>", unsafe_allow_html=True)
+                                st.markdown(f"<div style='background-color: #444444; padding: 8px; border-radius: 5px; color: #FFFFFF;'>{html.escape(str(result['pattern']))}</div>", unsafe_allow_html=True)
 
-        # 분석 완료 메시지
-        if results:
-            st.success(f"""
-                ✨ 분석이 완료되었습니다!
-                - {len(results)}개의 패턴 발견
-                - 평균 위험도: {avg_score:.1f}
-                - 고위험 패턴: {high_risk_count}개
-            """)
-        else:
-            st.info("👀 발견된 패턴이 없습니다.")
-            
+                                st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>분석:</div>", unsafe_allow_html=True)
+                                st.markdown(f"<div style='background-color: rgba{tuple(int(border_color[i:i+2], 16) for i in (1, 3, 5))}, 0.1); padding: 10px; border-radius: 5px; color: #FFFFFF;'>{html.escape(str(result['analysis']))}</div>", unsafe_allow_html=True)
+
+                                if result.get("url"):
+                                    with st.container():
+                                        thumbnail_url = get_youtube_thumbnail(result["url"])
+                                        if thumbnail_url:
+                                            try:
+                                                response = requests.get(thumbnail_url)
+                                                image = Image.open(BytesIO(response.content))
+                                                st.image(image, width=200, use_column_width=False)
+                                            except:
+                                                pass
+                                        st.markdown(f"<p><strong>🔗 <a href='{html.escape(result['url'])}' target='_blank' style='color:{border_color};'>참고 자료</a></strong></p>", unsafe_allow_html=True)
+
+                            st.markdown("<hr style='border: none; height: 1px; background-color: #555555;'>", unsafe_allow_html=True)
+            else:
+                st.info("위험 패턴이 발견되지 않았습니다.")
+
+        with tab2:
+            if spell_check_results:
+                # 파일별로 맞춤법 오류 그룹화
+                spell_check_by_file = defaultdict(list)
+                for result in spell_check_results:
+                    source_file = result.get('source_file', '알 수 없는 파일')
+                    spell_check_by_file[source_file].append(result)
+
+                for source_file, file_results in spell_check_by_file.items():
+                    st.markdown(f"""
+                        <h2 style='color:#E0E0E0; border-bottom: 2px solid #555555; padding-bottom: 10px; margin-top: 30px;'>
+                            📄 {html.escape(source_file)}
+                        </h2>
+                    """, unsafe_allow_html=True)
+
+                    for result in file_results:
+                        with st.container():
+                            st.markdown("""
+                                <div style='background-color: #2D2D2D; padding: 15px; border-radius: 10px; margin: 15px 0;'>
+                                    <h4 style='color: #E0E0E0;'>📝 맞춤법 검사 결과</h4>
+                                </div>
+                            """, unsafe_allow_html=True)
+
+                            # 원문과 교정문 비교
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.markdown("**원문:**")
+                                st.markdown(f"""
+                                    <div style='background-color: #3D3D3D; padding: 10px; border-radius: 8px;'>
+                                        {html.escape(result['text'])}
+                                    </div>
+                                """, unsafe_allow_html=True)
+                            with col2:
+                                st.markdown("**교정문:**")
+                                st.markdown(f"""
+                                    <div style='background-color: #3D3D3D; padding: 10px; border-radius: 8px;'>
+                                        {html.escape(result['corrected_text'])}
+                                    </div>
+                                """, unsafe_allow_html=True)
+
+                            # 교정 사항 목록
+                            st.markdown("<h4 style='color: #E0E0E0; margin-top: 15px;'>🔍 교정 사항</h4>", unsafe_allow_html=True)
+                            for correction in result['corrections']:
+                                st.markdown(f"""
+                                    <div style='background-color: #3D3D3D; padding: 10px; border-radius: 8px; margin: 5px 0;'>
+                                        <p>🔍 수정 전: <span style='color: #FF5252;'>{html.escape(correction['original'])}</span></p>
+                                        <p>✅ 수정 후: <span style='color: #00E676;'>{html.escape(correction['corrected'])}</span></p>
+                                        <p>📋 유형: {html.escape(correction['type'])}</p>
+                                    </div>
+                                """, unsafe_allow_html=True)
+
+                            st.markdown("<hr style='border: none; height: 1px; background-color: #555555;'>", unsafe_allow_html=True)
+            else:
+                st.info("맞춤법 오류가 발견되지 않았습니다.")
+
     except Exception as e:
         st.error(f"결과 표시 중 오류 발생: {str(e)}")
         import traceback
