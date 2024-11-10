@@ -1203,9 +1203,15 @@ def display_file_analysis_results(analysis_results):
 
         results = analysis_results['results']
         
-        # 결과 분리
-        pattern_results = [r for r in results if not r.get('is_spell_check')]
-        spell_check_results = [r for r in results if r.get('is_spell_check')]
+        # 위험 패턴과 맞춤법 결과 분리
+        pattern_results = []
+        spell_check_results = []
+        
+        for result in results:
+            if 'spelling_errors' in result and result['spelling_errors']:
+                spell_check_results.append(result)
+            else:
+                pattern_results.append(result)
         
         # 패턴 결과 그룹화
         grouped_pattern_results = group_similar_patterns(pattern_results)
@@ -1278,68 +1284,101 @@ def display_file_analysis_results(analysis_results):
 
                         for result in results_by_severity:
                             match_percentage = int(result['match_score'] * 100)
-                            similar_count = result.get('similar_count', 0)
 
                             with st.container():
                                 # 기본 정보 표시
-                                cols = st.columns([2, 1, 1])
+                                cols = st.columns([2, 1])
                                 with cols[0]:
                                     st.markdown(f"<p style='color:#FFFFFF;'><strong>위험도:</strong> <span style='color:{border_color}; font-weight:bold;'>{result['danger_level']}</span></p>", unsafe_allow_html=True)
                                 with cols[1]:
                                     st.markdown(f"<p style='color:#FFFFFF;'><strong>일치율:</strong> {match_percentage}%</p>", unsafe_allow_html=True)
-                                with cols[2]:
-                                    if similar_count > 0:
-                                        st.markdown(f"<p style='color:#FFFFFF;'><strong>유사 패턴:</strong> {similar_count}개</p>", unsafe_allow_html=True)
 
                                 # 원본 텍스트 표시
-                                st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>대표 텍스트:</div>", unsafe_allow_html=True)
-                                try:
-                                    highlighted_text = highlight_pattern_in_text(result['text'], result['pattern'])
-                                    st.markdown(f"<div style='white-space: pre-wrap; font-family: \"Noto Sans KR\", sans-serif; background-color: #333333; padding: 10px; border-radius: 5px; color: #FFFFFF;'>{highlighted_text}</div>", unsafe_allow_html=True)
-                                except:
-                                    st.markdown(f"<div style='white-space: pre-wrap; font-family: \"Noto Sans KR\", sans-serif; background-color: #333333; padding: 10px; border-radius: 5px; color: #FFFFFF;'>{html.escape(str(result['text']))}</div>", unsafe_allow_html=True)
+                                st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>발견된 텍스트:</div>", unsafe_allow_html=True)
+                                if 'text' in result:
+                                    try:
+                                        highlighted_text = highlight_pattern_in_text(result['text'], result['pattern'])
+                                        st.markdown(f"""
+                                            <div style='white-space: pre-wrap; font-family: "Noto Sans KR", sans-serif; 
+                                                    background-color: #333333; padding: 10px; border-radius: 5px; 
+                                                    color: #FFFFFF; margin-bottom: 10px;'>
+                                                {highlighted_text}
+                                            </div>
+                                        """, unsafe_allow_html=True)
+                                    except:
+                                        st.markdown(f"""
+                                            <div style='background-color: #333333; padding: 10px; border-radius: 5px; color: #FFFFFF;'>
+                                                {html.escape(str(result['text']))}
+                                            </div>
+                                        """, unsafe_allow_html=True)
 
-                                # 유사 패턴이 있는 경우 확장 가능한 섹션으로 표시
-                                if similar_count > 0:
-                                    with st.expander(f"유사한 패턴 {similar_count}개 보기"):
-                                        for similar in result['similar_patterns']:
-                                            st.markdown(f"""
-                                                <div style='background-color: #2D2D2D; padding: 10px; border-radius: 5px; margin: 5px 0;'>
-                                                    <p style='color: #E0E0E0;'>{html.escape(str(similar['text']))}</p>
-                                                    <p style='color: #888888; font-size: 0.9em;'>일치율: {int(similar['match_score'] * 100)}%</p>
-                                                </div>
-                                            """, unsafe_allow_html=True)
-
-                                # 패턴 정보 표시
-                                st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>매칭된 패턴:</div>", unsafe_allow_html=True)
-                                st.markdown(f"<div style='background-color: #444444; padding: 8px; border-radius: 5px; color: #FFFFFF;'>{html.escape(str(result['pattern']))}</div>", unsafe_allow_html=True)
-
-                                # 분석 결과 표시
+                                # 분석 정보 표시
                                 st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>분석:</div>", unsafe_allow_html=True)
-                                st.markdown(f"<div style='background-color: rgba{tuple(int(border_color[i:i+2], 16) for i in (1, 3, 5))}, 0.1); padding: 10px; border-radius: 5px; color: #FFFFFF;'>{html.escape(str(result['analysis']))}</div>", unsafe_allow_html=True)
+                                if 'analysis' in result:
+                                    st.markdown(f"""
+                                        <div style='background-color: rgba{tuple(int(border_color[i:i+2], 16) for i in (1, 3, 5))}, 0.1); 
+                                                padding: 10px; border-radius: 5px; color: #FFFFFF;'>
+                                            {html.escape(str(result['analysis']))}
+                                        </div>
+                                    """, unsafe_allow_html=True)
 
                                 # 참고 자료 링크
                                 if result.get("url"):
                                     with st.container():
-                                        thumbnail_url = get_youtube_thumbnail(result["url"])
-                                        if thumbnail_url:
+                                        if 'thumbnail' in result:
                                             try:
-                                                response = requests.get(thumbnail_url)
-                                                image = Image.open(BytesIO(response.content))
-                                                st.image(image, width=200, use_column_width=False)
+                                                st.image(result['thumbnail'], width=200)
                                             except:
                                                 pass
-                                        st.markdown(f"<p><strong>🔗 <a href='{html.escape(result['url'])}' target='_blank' style='color:{border_color};'>참고 자료</a></strong></p>", unsafe_allow_html=True)
+                                        st.markdown(f"""
+                                            <p><strong>🔗 <a href='{html.escape(result["url"])}' 
+                                               target='_blank' style='color:{border_color};'>참고 자료</a></strong></p>
+                                        """, unsafe_allow_html=True)
 
                             st.markdown("<hr style='border: none; height: 1px; background-color: #555555;'>", unsafe_allow_html=True)
             else:
                 st.info("위험 패턴이 발견되지 않았습니다.")
 
-        # 맞춤법 검사 결과 표시 (기존 코드와 동일)
+        # 맞춤법 검사 결과 표시
         with tab2:
             if spell_check_results:
-                # ... (기존의 맞춤법 검사 결과 표시 코드 유지)
-                pass
+                st.markdown("""
+                    <div style='background-color: #2D2D2D; padding: 15px; border-radius: 10px; margin-bottom: 20px;'>
+                        <h3 style='color: #E0E0E0'>📝 맞춤법 검사 결과</h3>
+                    </div>
+                """, unsafe_allow_html=True)
+
+                for result in spell_check_results:
+                    source_file = result.get('source_file', '알 수 없는 파일')
+                    st.markdown(f"""
+                        <div style='background-color: #2D2D2D; padding: 15px; border-radius: 10px; margin: 10px 0;'>
+                            <h4 style='color: #E0E0E0'>📄 {html.escape(source_file)}</h4>
+                        </div>
+                    """, unsafe_allow_html=True)
+
+                    # 원본 텍스트
+                    st.markdown("<div style='font-weight:bold; color: #FFFFFF;'>원문:</div>", unsafe_allow_html=True)
+                    st.markdown(f"""
+                        <div style='background-color: #333333; padding: 10px; border-radius: 5px; color: #FFFFFF; margin: 5px 0;'>
+                            {html.escape(str(result['text']))}
+                        </div>
+                    """, unsafe_allow_html=True)
+
+                    # 맞춤법 오류 목록
+                    if result['spelling_errors']:
+                        st.markdown("""
+                            <div style='font-weight:bold; color: #FFFFFF; margin-top: 10px;'>발견된 맞춤법 오류:</div>
+                        """, unsafe_allow_html=True)
+                        
+                        for error, correction in result['spelling_errors']:
+                            st.markdown(f"""
+                                <div style='background-color: #3D3D3D; padding: 10px; border-radius: 5px; margin: 5px 0;'>
+                                    <p style='color: #FF5252; margin: 0;'>🔍 오류: {html.escape(error)}</p>
+                                    <p style='color: #00E676; margin: 0;'>✅ 수정: {html.escape(correction)}</p>
+                                </div>
+                            """, unsafe_allow_html=True)
+
+                    st.markdown("<hr style='border: none; height: 1px; background-color: #555555; margin: 20px 0;'>", unsafe_allow_html=True)
             else:
                 st.info("맞춤법 오류가 발견되지 않았습니다.")
 
