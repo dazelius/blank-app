@@ -12,6 +12,12 @@ import html
 import requests
 from PIL import Image
 from io import BytesIO
+import requests
+from urllib.parse import quote
+import json
+import re
+from concurrent.futures import ThreadPoolExecutor
+import time
 
 # 페이지 설정
 st.set_page_config(
@@ -176,6 +182,224 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+import requests
+from urllib.parse import quote
+import json
+import re
+from concurrent.futures import ThreadPoolExecutor
+import time
+
+class NaverSpellChecker:
+    """네이버 맞춤법 검사기 클래스"""
+    
+    def __init__(self):
+        self.url = "https://m.search.naver.com/p/csearch/ocontent/util/SpellerProxy"
+        self.headers = {
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/57.0.2987.133 Safari/537.36',
+            'referer': 'https://search.naver.com/',
+        }
+        
+    def _check_chunk(self, text):
+        """텍스트 청크 검사"""
+        try:
+            params = {
+                'q': text,
+                'where': 'nexearch',
+                'color_blindness': 0
+            }
+            
+            response = requests.get(
+                self.url,
+                params=params,
+                headers=self.headers
+            )
+            
+            if response.status_code != 200:
+                return {
+                    'original': text,
+                    'corrected': text,
+                    'corrections': [],
+                    'error': f'Status code: {response.status_code}'
+                }
+                
+            result = response.json()
+            html_str = result.get('message', {}).get('result', {}).get('html', '')
+            corrected = re.sub(r'<\/?[^>]+>', '', html_str)
+            
+            corrections = []
+            errata_pairs = result.get('message', {}).get('result', {}).get('errata_count', 0)
+            
+            if errata_pairs > 0:
+                # 원문과 교정문에서 차이점 찾기
+                for orig, corr in zip(text.split(), corrected.split()):
+                    if orig != corr:
+                        corrections.append({
+                            'original': orig,
+                            'corrected': corr,
+                            'type': '맞춤법/띄어쓰기'
+                        })
+            
+            return {
+                'original': text,
+                'corrected': corrected,
+                'corrections': corrections,
+                'error': None
+            }
+            
+        except Exception as e:
+            return {
+                'original': text,
+                'corrected': text,
+                'corrections': [],
+                'error': str(e)
+            }
+    
+    def check(self, text, max_length=500, max_retries=3):
+        """
+        텍스트 맞춤법 검사
+        
+        Args:
+            text: 검사할 텍스트
+            max_length: 청크당 최대 길이
+            max_retries: 최대 재시도 횟수
+        """
+        if not text or text.isspace():
+            return {
+                'original': text,
+                'corrected': text,
+                'corrections': [],
+                'error': None
+            }
+        
+        # 텍스트를 청크로 분할
+        chunks = []
+        current_chunk = ''
+        
+        for sentence in re.split('([.!?])', text):
+            if len(current_chunk) + len(sentence) > max_length:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                current_chunk = sentence
+            else:
+                current_chunk += sentence
+        
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+        
+        # 병렬 처리로 각 청크 검사
+        all_results = []
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            for chunk in chunks:
+                for attempt in range(max_retries):
+                    try:
+                        result = self._check_chunk(chunk)
+                        if not result.get('error'):
+                            all_results.append(result)
+                            break
+                        time.sleep(1)  # API 요청 간격
+                    except Exception as e:
+                        if attempt == max_retries - 1:
+                            all_results.append({
+                                'original': chunk,
+                                'corrected': chunk,
+                                'corrections': [],
+                                'error': str(e)
+                            })
+        
+        # 결과 병합
+        corrected_text = ''
+        all_corrections = []
+        
+        for result in all_results:
+            corrected_text += result['corrected'] + ' '
+            if result['corrections']:
+                all_corrections.extend(result['corrections'])
+        
+        return {
+            'original': text,
+            'corrected': corrected_text.strip(),
+            'corrections': all_corrections,
+            'error': None if all(not r.get('error') for r in all_results) else 'Partial errors occurred'
+        }
+
+def analyze_text_with_spelling(input_text, data, threshold=0.7):
+    """텍스트 분석과 맞춤법 검사 통합"""
+    
+    # 맞춤법 검사
+    checker = NaverSpellChecker()
+    spelling_result = checker.check(input_text)
+    
+    # 기존 패턴 매칭
+    found_patterns = find_matching_patterns(input_text, data, threshold)
+    
+    # 맞춤법 교정 후 추가 패턴 검사
+    if spelling_result['corrections']:
+        corrected_patterns = find_matching_patterns(
+            spelling_result['corrected'], 
+            data, 
+            threshold
+        )
+        
+        # 새로운 패턴만 추가
+        existing_patterns = {p['pattern'] for p in found_patterns}
+        for pattern in corrected_patterns:
+            if pattern['pattern'] not in existing_patterns:
+                pattern['found_in_corrected'] = True
+                found_patterns.append(pattern)
+    
+    return {
+        'patterns': found_patterns,
+        'spelling': spelling_result
+    }
+
+def display_spelling_analysis(spelling_result):
+    """맞춤법 분석 결과 표시"""
+    if not spelling_result['corrections']:
+        st.info("✅ 맞춤법 오류가 발견되지 않았습니다.")
+        return
+        
+    st.markdown("""
+        <div style='background-color: #2D2D2D; padding: 15px; border-radius: 10px; margin: 15px 0;'>
+            <h3 style='color: #E0E0E0;'>📝 맞춤법 검사 결과</h3>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # 교정 사항 표시
+    st.markdown("<div style='margin-bottom: 20px;'>", unsafe_allow_html=True)
+    for correction in spelling_result['corrections']:
+        st.markdown(f"""
+            <div style='background-color: #3D3D3D; padding: 10px; border-radius: 8px; margin: 5px 0;'>
+                <p>🔍 원문: <span style='color: #FF5252;'>{correction['original']}</span></p>
+                <p>✅ 교정: <span style='color: #00E676;'>{correction['corrected']}</span></p>
+                <p>📋 유형: {correction['type']}</p>
+            </div>
+        """, unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # 전체 교정문 비교
+    if spelling_result['original'] != spelling_result['corrected']:
+        st.markdown("""
+            <div style='background-color: #2D2D2D; padding: 15px; border-radius: 10px; margin-top: 15px;'>
+                <h4 style='color: #E0E0E0;'>📄 전체 텍스트 비교</h4>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**원문:**")
+            st.markdown(f"""
+                <div style='background-color: #3D3D3D; padding: 10px; border-radius: 8px;'>
+                    {spelling_result['original']}
+                </div>
+            """, unsafe_allow_html=True)
+        with col2:
+            st.markdown("**교정문:**")
+            st.markdown(f"""
+                <div style='background-color: #3D3D3D; padding: 10px; border-radius: 8px;'>
+                    {spelling_result['corrected']}
+                </div>
+            """, unsafe_allow_html=True)
 
 
 # 1. 데이터 전처리 최적화
@@ -1358,13 +1582,24 @@ def main():
                 
                 if analyze_button and input_text:
                     with st.spinner('🔄 문장을 분석하고 있습니다...'):
-                        found_patterns = find_matching_patterns(input_text, data)
-                        if found_patterns:
-                            total_score = calculate_danger_score(found_patterns)
-                            st.success(f"🎯 분석이 완료되었습니다! {len(found_patterns)}개의 패턴이 발견되었습니다.")
-                            display_analysis_results(found_patterns, total_score)
-                        else:
-                            st.info("👀 특별한 위험 패턴이 발견되지 않았습니다.")
+                        try:
+                            # 맞춤법 검사와 패턴 분석 통합 수행
+                            analysis_result = analyze_text_with_spelling(input_text, data)
+                            
+                            # 맞춤법 분석 결과 표시
+                            display_spelling_analysis(analysis_result['spelling'])
+                            
+                            # 패턴 매칭 결과 표시
+                            found_patterns = analysis_result['patterns']
+                            if found_patterns:
+                                total_score = calculate_danger_score(found_patterns)
+                                st.success(f"🎯 분석이 완료되었습니다! {len(found_patterns)}개의 패턴이 발견되었습니다.")
+                                display_analysis_results(found_patterns, total_score)
+                            else:
+                                st.info("👀 특별한 위험 패턴이 발견되지 않았습니다.")
+                                
+                        except Exception as e:
+                            st.error(f"분석 중 오류가 발생했습니다: {str(e)}")
             
             else:  # 파일/폴더 업로드
                 st.markdown("""
