@@ -1060,15 +1060,17 @@ def analyze_file_contents(file_content, data):
                                 except (ValueError, TypeError):
                                     danger_level = 0
                                     
-                                batch_results.append({
-                                    'text': text,
-                                    'pattern': pattern_item['text'],
-                                    'analysis': pattern_item['output'],
-                                    'danger_level': danger_level,
-                                    'url': pattern_item.get('url', ''),
-                                    'match_score': match_score,
-                                    'source_file': source_file
-                                })
+                                    batch_results.append({
+                                        'text': text,
+                                        'pattern': pattern_item['text'],
+                                        'analysis': pattern_item['output'],
+                                        'danger_level': danger_level,
+                                        'url': pattern_item.get('url', ''),
+                                        'match_score': match_score,
+                                        'source_file': source_file,
+                                        'column': col,  # 컬럼 정보 추가
+                                        'spelling_check': check_spelling(text)  # 맞춤법 검사 결과 추가
+                                    })
                 
                 return batch_results
 
@@ -1715,34 +1717,28 @@ def main():
                 with col1:
                     spell_check_files = st.checkbox("맞춤법 검사 포함", value=True)
                 
-                if uploaded_files:
-                    if st.button("📂 파일 분석", use_container_width=True):
-                        all_results = []
-                        total_patterns = 0
-                        
-                        # 프로그레스 바 설정
-                        progress_text = st.empty()
-                        progress_bar = st.progress(0)
-                        
-                        # 각 파일 처리
-                        for idx, file in enumerate(uploaded_files):
-                            progress = (idx + 1) / len(uploaded_files)
-                            progress_bar.progress(progress)
-                            progress_text.text(f"파일 분석 중... ({idx + 1}/{len(uploaded_files)}): {file.name}")
+                    if uploaded_files:
+                        if st.button("📂 파일 분석", use_container_width=True):
+                            all_results = []
+                            total_patterns = 0
                             
-                            with st.spinner(f'🔄 {file.name} 분석 중...'):
-                                analysis_result = analyze_file_contents(file, data)
+                            # 프로그레스 바 설정
+                            progress_text = st.empty()
+                            progress_bar = st.progress(0)
+                            
+                            # 각 파일 처리
+                            for idx, file in enumerate(uploaded_files):
+                                progress = (idx + 1) / len(uploaded_files)
+                                progress_bar.progress(progress)
+                                progress_text.text(f"파일 분석 중... ({idx + 1}/{len(uploaded_files)}): {file.name}")
                                 
-                                if analysis_result and analysis_result['total_patterns'] > 0:
-                                    # 맞춤법 검사 추가
-                                    if spell_check_files:
-                                        for result in analysis_result['results']:
-                                            spelling_result = check_spelling(result['text'])
-                                            if spelling_result and spelling_result['errors'] > 0:
-                                                result['spelling_check'] = spelling_result
+                                with st.spinner(f'🔄 {file.name} 분석 중...'):
+                                    analysis_result = analyze_file_contents(file, data)
                                     
-                                    all_results.extend(analysis_result['results'])
-                                    total_patterns += analysis_result['total_patterns']
+                                    if analysis_result and analysis_result['total_patterns'] > 0:
+                                        # 맞춤법 검사는 이제 analyze_file_contents 내에서 처리됨
+                                        all_results.extend(analysis_result['results'])
+                                        total_patterns += analysis_result['total_patterns']
                         
                         progress_bar.empty()
                         progress_text.empty()
