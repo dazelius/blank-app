@@ -180,124 +180,53 @@ st.markdown("""
 import re
 from collections import defaultdict
 
-class SimpleKoreanSpellChecker:
-    """간단한 규칙 기반 한국어 맞춤법 검사기"""
+import re
+from collections import defaultdict
+
+class SheetBasedSpellChecker:
+    """구글 시트 기반 맞춤법 검사기"""
     
     def __init__(self):
-        self.rules = self._initialize_rules()
+        self.rules = self._load_rules_from_sheet()
         
-    def _initialize_rules(self):
-        """맞춤법 규칙 초기화"""
-        return {
-            # 기본적인 맞춤법 오류
-            'spelling': {
-                '됬': '됐',
-                '했슴': '했음',
-                '햇어': '했어',
-                '더웟': '더웠',
-                '이뻐': '예뻐',
-                '이쁜': '예쁜',
-                '이뻤': '예뻤',
-                '씁슬': '씁쓸',
-                '씁쓸': '씁쓸',
-                '갓': '걷',
-                '걳': '걷',
-                '깥': '깨달',
-                '달소': '닳소',
-                '됏': '되었',
-                '되엿': '되었',
-                '되염': '되요',
-                '듯한': '듯한',
-                '들려': '들러',
-                '맟': '맞',
-                '맟추': '맞추',
-                '믿데': '믿어',
-                '밨': '보았',
-                '바든': '받은',
-                '벌써': '벌써',
-                '부빜': '부뀜',
-                '살려': '사려',
-                '삭제': '삭제',
-                '쉽데': '쉽더',
-                '어떻해': '어떡해',
-                '어떨까': '어떨까',
-                '어떨지': '어떨지',
-                '어떻게': '어떻게',
-                '없다': '없다',
-                '왓': '왔',
-                '이따': '이따가',
-                '있다': '있다',
-                '젓': '졌',
-                '쫌': '좀',
-                '찾으': '찾아',
-                '했데': '했더',
-                '횡당': '형님',
-            },
-            
-            # 띄어쓰기 오류
-            'spacing': {
-                '안돼': '안 돼',
-                '안되': '안 되',
-                '못하': '못 하',
-                '안된': '안 된',
-                '안되는': '안 되는',
-                '안되고': '안 되고',
-                '안됀': '안 된',
-                '수있': '수 있',
-                '수없': '수 없',
-                '더욱더': '더욱 더',
-                '왜냐하면': '왜냐하면',
-                '그러므로': '그러므로',
-                '때문에': '때문에',
-                '그래서': '그래서',
-                '아니면': '아니면',
-                '그리고': '그리고',
-                '하지만': '하지만',
-            },
-            
-            # 조사 오류
-            'particles': {
-                '이랑': '과',
-                '랑': '와',
-                '한테': '에게',
-                '에서부터': '부터',
-                '까지에': '까지',
-            },
-            
-            # 축약어 오류
-            'abbreviation': {
-                '머': '뭐',
-                '루': '로',
-                '솔직히말해서': '솔직히 말해서',
-                '솔직히말하면': '솔직히 말하면',
-                '그래욬ㅋㅋ': '그래요',
-                '방귀뀜': '방귀 뀜',
-                '먹음': '먹음',
-                '심심탱': '심심',
-                '하셈': '하세요',
-                '하삼': '하세요',
-                '했삼': '했어요',
-                '했슴': '했어요',
-                '했엌ㅋㅋ': '했어요',
+    def _load_rules_from_sheet(self):
+        """구글 시트에서 규칙 로드"""
+        try:
+            # 구글 시트 연결
+            credentials = {
+                "type": "service_account",
+                "project_id": st.secrets["gcp_service_account"]["project_id"],
+                "private_key_id": st.secrets["gcp_service_account"]["private_key_id"],
+                "private_key": st.secrets["gcp_service_account"]["private_key"],
+                "client_email": st.secrets["gcp_service_account"]["client_email"],
+                "client_id": st.secrets["gcp_service_account"]["client_id"],
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                "client_x509_cert_url": st.secrets["gcp_service_account"]["client_x509_cert_url"]
             }
-        }
-    
-    def _apply_rules(self, text, rule_type):
-        """특정 규칙 유형 적용"""
-        corrections = []
-        corrected = text
-        
-        for wrong, right in self.rules[rule_type].items():
-            if wrong in text:
-                corrected = corrected.replace(wrong, right)
-                if wrong != right:  # 실제 교정이 발생한 경우만 기록
-                    corrections.append({
-                        'original': wrong,
-                        'corrected': right,
-                        'type': rule_type
-                    })
-        
-        return corrected, corrections
+            
+            # 시트 접근
+            gc = gspread.service_account_from_dict(credentials)
+            sheet = gc.open_by_url('https://docs.google.com/spreadsheets/d/1wPchxwAssBf706VuvxhGp4ESt3vj-N9RLcMaUF075ug/edit?gid=137455637#gid=137455637')
+            
+            # 'checker' 워크시트 가져오기
+            checker_worksheet = sheet.worksheet('checker')
+            
+            # A열(오류)과 B열(수정) 데이터 가져오기
+            data = checker_worksheet.get_all_values()
+            
+            # 헤더 제외하고 규칙 딕셔너리 생성
+            rules = {}
+            for row in data[1:]:  # 첫 행(헤더) 제외
+                if len(row) >= 2 and row[0] and row[1]:  # A열과 B열이 모두 존재하는 경우만
+                    rules[row[0].strip()] = row[1].strip()
+                    
+            return rules
+            
+        except Exception as e:
+            st.error(f"규칙 로딩 중 오류 발생: {str(e)}")
+            return {}
     
     def check(self, text):
         """텍스트 맞춤법 검사"""
@@ -310,33 +239,26 @@ class SimpleKoreanSpellChecker:
             }
             
         try:
+            corrections = []
             corrected_text = text
-            all_corrections = []
             
-            # 각 규칙 유형별로 검사 수행
-            for rule_type in self.rules.keys():
-                corrected_text, corrections = self._apply_rules(corrected_text, rule_type)
-                all_corrections.extend(corrections)
-            
-            # 중복 제거 및 정렬
-            unique_corrections = []
-            seen = set()
-            for correction in all_corrections:
-                key = (correction['original'], correction['corrected'])
-                if key not in seen:
-                    seen.add(key)
-                    unique_corrections.append(correction)
-            
-            # 교정 유형별로 분류
-            corrections_by_type = defaultdict(list)
-            for correction in unique_corrections:
-                corrections_by_type[correction['type']].append(correction)
+            # 규칙 적용
+            for wrong, right in self.rules.items():
+                if wrong in text:
+                    # 전체 단어 매칭을 위한 정규식 패턴
+                    pattern = r'\b' + re.escape(wrong) + r'\b'
+                    if re.search(pattern, text):
+                        corrected_text = re.sub(pattern, right, corrected_text)
+                        corrections.append({
+                            'original': wrong,
+                            'corrected': right,
+                            'type': '맞춤법/표현 오류'
+                        })
             
             return {
                 'original': text,
                 'corrected': corrected_text,
-                'corrections': unique_corrections,
-                'corrections_by_type': dict(corrections_by_type),
+                'corrections': corrections,
                 'error': None
             }
             
@@ -364,30 +286,14 @@ def display_spelling_analysis(spelling_result):
         </div>
     """, unsafe_allow_html=True)
     
-    # 교정 유형별로 결과 표시
-    corrections_by_type = spelling_result.get('corrections_by_type', {})
-    type_names = {
-        'spelling': '맞춤법 오류',
-        'spacing': '띄어쓰기 오류',
-        'particles': '조사 사용 오류',
-        'abbreviation': '축약어/비표준어'
-    }
-    
-    for error_type, corrections in corrections_by_type.items():
-        if corrections:
-            st.markdown(f"""
-                <div style='background-color: #3D3D3D; padding: 10px; border-radius: 8px; margin: 10px 0;'>
-                    <h4 style='color: #E0E0E0;'>{type_names.get(error_type, error_type)}</h4>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            for correction in corrections:
-                st.markdown(f"""
-                    <div style='background-color: #4D4D4D; padding: 10px; border-radius: 8px; margin: 5px 0;'>
-                        <p>🔍 수정 전: <span style='color: #FF5252;'>{correction['original']}</span></p>
-                        <p>✅ 수정 후: <span style='color: #00E676;'>{correction['corrected']}</span></p>
-                    </div>
-                """, unsafe_allow_html=True)
+    # 수정 사항 표시
+    for correction in spelling_result['corrections']:
+        st.markdown(f"""
+            <div style='background-color: #3D3D3D; padding: 10px; border-radius: 8px; margin: 5px 0;'>
+                <p>🔍 수정 전: <span style='color: #FF5252;'>{correction['original']}</span></p>
+                <p>✅ 수정 후: <span style='color: #00E676;'>{correction['corrected']}</span></p>
+            </div>
+        """, unsafe_allow_html=True)
     
     # 전체 텍스트 비교
     if spelling_result['original'] != spelling_result['corrected']:
@@ -417,7 +323,7 @@ def analyze_text_with_spelling(input_text, data, threshold=0.7):
     """텍스트 분석과 맞춤법 검사 통합"""
     
     # 맞춤법 검사
-    checker = SimpleKoreanSpellChecker()
+    checker = SheetBasedSpellChecker()
     spelling_result = checker.check(input_text)
     
     # 패턴 매칭
@@ -442,7 +348,6 @@ def analyze_text_with_spelling(input_text, data, threshold=0.7):
         'patterns': found_patterns,
         'spelling': spelling_result
     }
-
 
 # 1. 데이터 전처리 최적화
 @st.cache_data(ttl=3600)
@@ -1600,7 +1505,7 @@ def main():
             return
             
         # 탭 생성
-        tab1, tab2 = st.tabs(["🔍 문장 분석", "✏️ 패턴 등록"])
+        tab1, tab2, tab3 = st.tabs(["🔍 문장 분석", "✏️ 패턴 등록", "📝 맞춤법 규칙 관리"])
 
         with tab1:
             analysis_type = st.radio(
@@ -1653,7 +1558,6 @@ def main():
                     </div>
                 """, unsafe_allow_html=True)
                 
-                # 다중 파일 업로드 지원
                 uploaded_files = st.file_uploader(
                     "파일 또는 ZIP 폴더 업로드", 
                     type=['csv', 'xlsx', 'xls', 'zip'],
@@ -1666,11 +1570,9 @@ def main():
                         all_results = []
                         total_patterns = 0
                         
-                        # 프로그레스 바 설정
                         progress_text = st.empty()
                         progress_bar = st.progress(0)
                         
-                        # 각 파일 처리
                         for idx, file in enumerate(uploaded_files):
                             progress = (idx + 1) / len(uploaded_files)
                             progress_bar.progress(progress)
@@ -1688,12 +1590,11 @@ def main():
                         if total_patterns > 0:
                             st.success(f"🎯 분석이 완료되었습니다! 총 {total_patterns}개의 패턴이 발견되었습니다.")
                             
-                            # 전체 결과를 분석 결과 형식으로 변환
                             combined_results = {
                                 'total_patterns': total_patterns,
                                 'results': sorted(all_results, 
                                                key=lambda x: (x['danger_level'], x['match_score']), 
-                                               reverse=True)[:1000]  # 상위 1000개만 표시
+                                               reverse=True)[:1000]
                             }
                             display_file_analysis_results(combined_results)
                         else:
@@ -1731,9 +1632,7 @@ def main():
                             ])
                             st.success("✅ 패턴이 등록되었습니다!")
                             st.balloons()
-                            # 캐시 갱신
                             st.cache_data.clear()
-                            # 페이지 새로고침
                             st.rerun()
                         else:
                             st.error("시트에 연결할 수 없습니다.")
@@ -1749,11 +1648,9 @@ def main():
             </div>
             """, unsafe_allow_html=True)
             
-            # 데이터프레임 생성 및 표시
             if data:
                 df = pd.DataFrame(data)
                 
-                # 컬럼명 변경
                 column_mapping = {
                     'text': '패턴',
                     'output': '분석',
@@ -1762,19 +1659,16 @@ def main():
                     'timestamp': '등록일시'
                 }
                 
-                # 존재하는 컬럼만 이름 변경
                 for old_col, new_col in column_mapping.items():
                     if old_col in df.columns:
                         df = df.rename(columns={old_col: new_col})
                 
-                # 검색/필터링 기능
                 search_term = st.text_input("🔍 패턴 검색:", placeholder="검색어를 입력하세요...")
                 if search_term:
                     pattern_mask = df['패턴'].astype(str).str.contains(search_term, case=False, na=False)
                     analysis_mask = df['분석'].astype(str).str.contains(search_term, case=False, na=False)
                     df = df[pattern_mask | analysis_mask]
                 
-                # 위험도 필터링
                 if '위험도' in df.columns:
                     col1, col2 = st.columns(2)
                     with col1:
@@ -1785,7 +1679,6 @@ def main():
                     df['위험도'] = pd.to_numeric(df['위험도'], errors='coerce')
                     df = df[(df['위험도'] >= min_danger) & (df['위험도'] <= max_danger)]
                 
-                # 테이블 표시
                 st.dataframe(
                     df,
                     use_container_width=True,
@@ -1793,7 +1686,6 @@ def main():
                     height=400
                 )
                 
-                # 통계 정보 표시
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("총 패턴 수", len(df))
@@ -1804,6 +1696,70 @@ def main():
                         st.metric("고위험 패턴 수", len(df[df['위험도'] >= 70]))
             else:
                 st.info("등록된 패턴이 없습니다.")
+
+        with tab3:
+            st.markdown("""
+                <div style='background-color: #2D2D2D; padding: 1rem; border-radius: 10px; margin-bottom: 1rem;'>
+                    <h4>📝 맞춤법 규칙 관리</h4>
+                    <p style='color: #E0E0E0;'>맞춤법 검사에 사용될 규칙을 관리합니다.</p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            with st.form("spelling_rule_form", clear_on_submit=True):
+                wrong_text = st.text_input("❌ 오류 표현:", placeholder="수정이 필요한 표현을 입력하세요")
+                correct_text = st.text_input("✅ 올바른 표현:", placeholder="올바른 표현을 입력하세요")
+                
+                col1, col2, col3 = st.columns([1,1,1])
+                with col2:
+                    submit_button = st.form_submit_button("✨ 규칙 등록", use_container_width=True)
+            
+            if submit_button:
+                if all([wrong_text, correct_text]):
+                    try:
+                        worksheet = get_sheet_instance()
+                        if worksheet:
+                            try:
+                                checker_sheet = worksheet.worksheet('checker')
+                            except:
+                                checker_sheet = worksheet.add_worksheet('checker', 1000, 2)
+                                checker_sheet.update('A1:B1', [['오류', '수정']])
+                            
+                            checker_sheet.append_row([wrong_text, correct_text])
+                            st.success("✅ 맞춤법 규칙이 등록되었습니다!")
+                            st.balloons()
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.error("시트에 연결할 수 없습니다.")
+                    except Exception as e:
+                        st.error(f"😢 규칙 등록 중 오류가 발생했습니다: {str(e)}")
+                else:
+                    st.warning("⚠️ 오류 표현과 올바른 표현을 모두 입력해주세요!")
+            
+            # 현재 등록된 규칙 표시
+            st.markdown("""
+            <div class="database-title">
+                📊 현재 등록된 맞춤법 규칙
+            </div>
+            """, unsafe_allow_html=True)
+            
+            try:
+                checker = SheetBasedSpellChecker()
+                rules = checker.rules
+                
+                if rules:
+                    df = pd.DataFrame(list(rules.items()), columns=['오류 표현', '올바른 표현'])
+                    st.dataframe(
+                        df,
+                        use_container_width=True,
+                        hide_index=True,
+                        height=400
+                    )
+                else:
+                    st.info("등록된 맞춤법 규칙이 없습니다.")
+                    
+            except Exception as e:
+                st.error(f"규칙 목록 로딩 중 오류 발생: {str(e)}")
                 
     except Exception as e:
         st.error(f"애플리케이션 실행 중 오류가 발생했습니다: {str(e)}")
