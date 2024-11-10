@@ -1486,7 +1486,7 @@ def display_analysis_results(patterns, total_score):
         st.error(f"상세 오류: {traceback.format_exc()}")
 
 def main():
-    st.markdown('<h1 class="main-title">StringAnalysis</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-title">📃StringAnalysis</h1>', unsafe_allow_html=True)
     st.markdown("""
     > 💡 입력된 문장을 분석하고 점수화하여 보여드립니다.
     """)
