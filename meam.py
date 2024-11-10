@@ -920,121 +920,137 @@ import streamlit as st
 import html
 
 def analyze_file_contents(file_content, data):
-    """파일 내용 분석 - 파일 검증 및 처리 강화"""
+    """파일 내용 분석 - 고성능 최적화 버전"""
     if file_content is not None:
         try:
-            # 파일 유효성 검사
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            from functools import partial
+            import numpy as np
+            
             filename = getattr(file_content, 'name', '알 수 없는 파일')
-            file_size = getattr(file_content, 'size', 0)
             
-            if file_size == 0:
-                st.warning(f"'{filename}'이 비어있습니다.")
-                return None
-                
-            # 파일 형식 검증
-            file_type = filename.split('.')[-1].lower() if '.' in filename else ''
-            if file_type not in ['csv', 'xlsx', 'xls', 'zip']:
-                st.warning(f"'{filename}'은 지원하지 않는 파일 형식입니다. (지원: CSV, Excel, ZIP)")
-                return None
-
-            # 패턴 데이터 전처리 및 인덱싱
-            pattern_index = {}
-            for idx, pattern in enumerate(data):
-                if not isinstance(pattern, dict) or 'text' not in pattern:
+            # 패턴 사전 인덱싱 (캐싱)
+            pattern_lookup = {}
+            for pat in data:
+                if not isinstance(pat, dict) or 'text' not in pat:
                     continue
-                pattern_text = str(pattern['text']).lower()
-                words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', ' ', pattern_text).split())
-                for word in words:
+                key_words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', ' ', str(pat['text']).lower()).split())
+                for word in key_words:
                     if len(word) >= 2:
-                        if word not in pattern_index:
-                            pattern_index[word] = set()
-                        pattern_index[word].add(idx)
+                        if word not in pattern_lookup:
+                            pattern_lookup[word] = []
+                        pattern_lookup[word].append(pat)
 
-            # 파일 처리를 위한 설정
-            BATCH_SIZE = 5000
-            chunk_size = max(1000, min(BATCH_SIZE, file_content.tell() // 100))
-            dfs = []
-            
-            # 파일 타입별 처리
-            try:
-                if file_type == 'csv':
-                    try:
-                        # UTF-8 시도
-                        df = pd.read_csv(file_content, dtype=str, encoding='utf-8')
-                    except UnicodeDecodeError:
-                        # EUC-KR 시도
-                        file_content.seek(0)
-                        df = pd.read_csv(file_content, dtype=str, encoding='euc-kr')
-                    df['source_file'] = filename
-                    dfs.append(df)
+            # 병렬 처리를 위한 배치 분석 함수
+            def analyze_text_batch(texts, source_files, column, sheet_names=None):
+                batch_results = []
+                checker = SheetBasedSpellChecker()
+                
+                for idx, (text, source_file) in enumerate(zip(texts, source_files)):
+                    if not isinstance(text, str) or not text.strip():
+                        continue
+
+                    # 1단계: 빠른 키워드 매칭
+                    text_lower = str(text).lower()
+                    words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', ' ', text_lower).split())
                     
-                elif file_type in ['xlsx', 'xls']:
-                    # 모든 시트 처리
-                    excel_file = pd.ExcelFile(file_content)
-                    for sheet_name in excel_file.sheet_names:
-                        try:
-                            df = pd.read_excel(excel_file, sheet_name=sheet_name, dtype=str)
-                            df['source_file'] = f"{filename} - {sheet_name}"
-                            df['sheet_name'] = sheet_name
-                            dfs.append(df)
-                        except Exception as e:
-                            st.warning(f"'{filename}'의 '{sheet_name}' 시트 처리 중 오류 발생: {str(e)}")
-                            continue
-                            
-                elif file_type == 'zip':
-                    with zipfile.ZipFile(file_content) as z:
-                        for zip_filename in z.namelist():
-                            if zip_filename.endswith(('.csv', '.xlsx', '.xls')):
-                                with z.open(zip_filename) as f:
-                                    inner_file_type = zip_filename.split('.')[-1].lower()
-                                    try:
-                                        if inner_file_type == 'csv':
-                                            try:
-                                                df = pd.read_csv(io.BytesIO(f.read()), dtype=str, encoding='utf-8')
-                                            except UnicodeDecodeError:
-                                                f.seek(0)
-                                                df = pd.read_csv(io.BytesIO(f.read()), dtype=str, encoding='euc-kr')
-                                        else:
-                                            df = pd.read_excel(io.BytesIO(f.read()), dtype=str)
-                                        df['source_file'] = f"{filename} - {zip_filename}"
-                                        dfs.append(df)
-                                    except Exception as e:
-                                        st.warning(f"ZIP 내부 파일 '{zip_filename}' 처리 중 오류 발생: {str(e)}")
-                                        continue
+                    # 후보 패턴 수집
+                    candidate_patterns = set()
+                    for word in words:
+                        if len(word) >= 2 and word in pattern_lookup:
+                            candidate_patterns.update(pattern_lookup[word])
 
-            except Exception as e:
-                st.error(f"'{filename}' 파일 읽기 중 오류 발생: {str(e)}")
-                return None
+                    # 2단계: 상세 패턴 매칭
+                    for pattern in candidate_patterns:
+                        match = find_matching_patterns([text], [pattern], threshold=0.5)
+                        if match:
+                            for m in match:
+                                m['source_file'] = source_file
+                                m['column'] = column
+                                if sheet_names is not None:
+                                    m['sheet_name'] = sheet_names.iloc[idx]
+                                batch_results.append(m)
+
+                    # 맞춤법 검사 (캐시 활용)
+                    spell_result = checker.check(text)
+                    if spell_result['corrections']:
+                        spell_check = {
+                            'text': text,
+                            'source_file': source_file,
+                            'column': column,
+                            'sheet_name': sheet_names.iloc[idx] if sheet_names is not None else None,
+                            'spelling_errors': spell_result['corrections'],
+                            'corrected_text': spell_result['corrected'],
+                            'is_spell_check': True,
+                            'match_score': 1.0,
+                            'danger_level': 0
+                        }
+                        batch_results.append(spell_check)
+                        
+                return batch_results
+
+            # 파일 처리 최적화
+            BATCH_SIZE = 10000  # 배치 크기 증가
+            MAX_WORKERS = min(32, (os.cpu_count() or 1) * 2)  # 스레드 수 최적화
+            
+            dfs = []
+            file_type = filename.split('.')[-1].lower()
+            
+            # 파일 타입별 최적화된 로딩
+            if file_type == 'csv':
+                try:
+                    df = pd.read_csv(file_content, dtype=str, engine='c', encoding='utf-8')
+                except UnicodeDecodeError:
+                    file_content.seek(0)
+                    df = pd.read_csv(file_content, dtype=str, engine='c', encoding='euc-kr')
+                df['source_file'] = filename
+                dfs.append(df)
+            
+            elif file_type in ['xlsx', 'xls']:
+                excel_file = pd.ExcelFile(file_content)
+                for sheet_name in excel_file.sheet_names:
+                    try:
+                        df = pd.read_excel(excel_file, sheet_name=sheet_name, dtype=str, engine='openpyxl')
+                        df['source_file'] = f"{filename} - {sheet_name}"
+                        df['sheet_name'] = sheet_name
+                        dfs.append(df)
+                    except Exception as e:
+                        st.warning(f"시트 '{sheet_name}' 처리 중 오류: {str(e)}")
+                        continue
+            
+            elif file_type == 'zip':
+                with zipfile.ZipFile(file_content) as z:
+                    for zip_filename in z.namelist():
+                        if zip_filename.endswith(('.csv', '.xlsx', '.xls')):
+                            with z.open(zip_filename) as f:
+                                try:
+                                    if zip_filename.endswith('.csv'):
+                                        df = pd.read_csv(io.BytesIO(f.read()), dtype=str, engine='c')
+                                    else:
+                                        df = pd.read_excel(io.BytesIO(f.read()), dtype=str, engine='openpyxl')
+                                    df['source_file'] = f"{filename} - {zip_filename}"
+                                    dfs.append(df)
+                                except Exception as e:
+                                    st.warning(f"ZIP 내부 파일 '{zip_filename}' 처리 중 오류: {str(e)}")
+                                    continue
 
             if not dfs:
-                st.warning(f"'{filename}'에서 처리할 수 있는 데이터를 찾을 수 없습니다.")
                 return None
 
-            # 데이터프레임 통합 및 검증
-            df = pd.concat(dfs, ignore_index=True)
-            if df.empty:
-                st.warning(f"'{filename}'에 분석할 데이터가 없습니다.")
-                return None
-
-            # 메모리 최적화
+            # 데이터프레임 최적화
+            df = pd.concat(dfs, ignore_index=True, copy=False)
             del dfs
             gc.collect()
 
-            # 텍스트 컬럼 식별 및 검증
             text_columns = df.select_dtypes(include=['object']).columns
             text_columns = [col for col in text_columns if col not in ['source_file', 'sheet_name']]
             
             if not text_columns:
-                st.warning(f"'{filename}'에서 분석할 텍스트 컬럼을 찾을 수 없습니다.")
                 return None
 
-            # 분석 결과 저장
             all_results = []
             total_rows = len(df)
             
-            # 맞춤법 검사기 초기화
-            checker = SheetBasedSpellChecker()
-
             # 진행 상황 표시
             progress_bar = st.progress(0)
             status_text = st.empty()
@@ -1042,106 +1058,88 @@ def analyze_file_contents(file_content, data):
             processed_rows = 0
             start_time = time.time()
 
-            # 배치 처리
-            for batch_start in range(0, total_rows, BATCH_SIZE):
-                batch_end = min(batch_start + BATCH_SIZE, total_rows)
-                batch_df = df.iloc[batch_start:batch_end]
-                
-                batch_results = []
+            # 병렬 처리
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                future_to_batch = {}
                 
                 for col in text_columns:
-                    # 컬럼 데이터 검증
-                    if batch_df[col].isna().all():
+                    texts = df[col].dropna()
+                    if texts.empty:
                         continue
                         
-                    texts = batch_df[col].dropna()
-                    source_files = batch_df.loc[texts.index, 'source_file']
-                    sheet_names = batch_df.loc[texts.index, 'sheet_name'] if 'sheet_name' in batch_df.columns else None
+                    source_files = df.loc[texts.index, 'source_file']
+                    sheet_names = df.loc[texts.index, 'sheet_name'] if 'sheet_name' in df.columns else None
                     
-                    for idx, (text, source_file) in enumerate(zip(texts, source_files)):
-                        if not isinstance(text, str) or not text.strip():
-                            continue
-                            
-                        # 패턴 매칭
-                        matches = find_matching_patterns(text, data)
-                        for match in matches:
-                            match['source_file'] = source_file
-                            match['column'] = col
-                            if sheet_names is not None:
-                                match['sheet_name'] = sheet_names.iloc[idx]
-                            batch_results.append(match)
+                    # 배치 단위로 분할
+                    for batch_start in range(0, len(texts), BATCH_SIZE):
+                        batch_end = min(batch_start + BATCH_SIZE, len(texts))
+                        batch_texts = texts.iloc[batch_start:batch_end]
+                        batch_sources = source_files.iloc[batch_start:batch_end]
+                        batch_sheets = sheet_names.iloc[batch_start:batch_end] if sheet_names is not None else None
                         
-                        # 맞춤법 검사
-                        spell_result = checker.check(text)
-                        if spell_result['corrections']:
-                            spell_check = {
-                                'text': text,
-                                'source_file': source_file,
-                                'column': col,
-                                'sheet_name': sheet_names.iloc[idx] if sheet_names is not None else None,
-                                'spelling_errors': spell_result['corrections'],
-                                'corrected_text': spell_result['corrected'],
-                                'is_spell_check': True,
-                                'match_score': 1.0,
-                                'danger_level': 0
-                            }
-                            batch_results.append(spell_check)
-                
-                all_results.extend(batch_results)
-                
-                # 진행률 업데이트
-                processed_rows += batch_end - batch_start
-                progress = processed_rows / total_rows
-                progress_bar.progress(progress)
-                
-                elapsed_time = time.time() - start_time
-                speed = processed_rows / elapsed_time if elapsed_time > 0 else 0
-                remaining_time = (total_rows - processed_rows) / speed if speed > 0 else 0
-                
-                status_text.text(f"""
-                    처리 중... {processed_rows:,}/{total_rows:,} 행
-                    처리 속도: {speed:.0f} 행/초
-                    예상 남은 시간: {remaining_time:.1f}초
-                    발견된 패턴: {len(all_results)}개
-                """)
+                        future = executor.submit(
+                            analyze_text_batch,
+                            batch_texts,
+                            batch_sources,
+                            col,
+                            batch_sheets
+                        )
+                        future_to_batch[future] = (batch_end - batch_start)
+
+                # 결과 수집
+                for future in as_completed(future_to_batch):
+                    try:
+                        batch_size = future_to_batch[future]
+                        batch_results = future.result()
+                        all_results.extend(batch_results)
+                        
+                        processed_rows += batch_size
+                        progress = min(processed_rows / total_rows, 1.0)
+                        progress_bar.progress(progress)
+                        
+                        elapsed_time = time.time() - start_time
+                        speed = processed_rows / elapsed_time if elapsed_time > 0 else 0
+                        remaining_time = (total_rows - processed_rows) / speed if speed > 0 else 0
+                        
+                        status_text.text(f"""
+                            처리 중... {processed_rows:,}/{total_rows:,} 행
+                            처리 속도: {speed:.0f} 행/초
+                            예상 남은 시간: {remaining_time:.1f}초
+                            발견된 패턴: {len(all_results)}개
+                        """)
+                        
+                    except Exception as e:
+                        st.error(f"배치 처리 중 오류: {str(e)}")
 
             progress_bar.empty()
             status_text.empty()
 
             if all_results:
-                # 결과 정리 및 중복 제거
+                # 결과 최적화
                 seen = set()
                 unique_results = []
                 
                 for result in sorted(
-                    all_results, 
-                    key=lambda x: (
-                        -x.get('danger_level', 0), 
-                        -x['match_score'],
-                        x.get('source_file', ''),
-                        x.get('sheet_name', ''),
-                        x.get('column', '')
-                    )
+                    all_results,
+                    key=lambda x: (-x.get('danger_level', 0), -x['match_score'])
                 ):
                     key = (
                         result.get('text', ''),
-                        result.get('pattern', ''),
+                        result.get('pattern', '') if not result.get('is_spell_check') else 'spell_check',
                         result.get('source_file', ''),
-                        result.get('sheet_name', ''),
                         result.get('column', '')
                     )
                     
                     if key not in seen:
                         seen.add(key)
                         unique_results.append(result)
-                
+
                 return {
                     'total_patterns': len([r for r in unique_results if not r.get('is_spell_check', False)]),
                     'results': unique_results[:1000],
                     'filename': filename
                 }
                 
-            st.info(f"'{filename}'에서 패턴이 발견되지 않았습니다.")
             return None
             
         except Exception as e:
@@ -1149,7 +1147,6 @@ def analyze_file_contents(file_content, data):
             import traceback
             st.error(f"상세 오류: {traceback.format_exc()}")
             return None
-            
     return None
 
 def group_similar_patterns(pattern_results, similarity_threshold=0.9):
