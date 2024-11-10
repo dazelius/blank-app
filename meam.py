@@ -995,7 +995,7 @@ import streamlit as st
 import html
 
 def analyze_file_contents(file_content, data):
-    """파일 내용 분석 - 초고속 버전 (폴더 및 타입 체크 지원)"""
+    """파일 내용 분석 - 중복 패턴 제거 버전"""
     import time
     from collections import defaultdict
     import numpy as np
@@ -1021,7 +1021,7 @@ def analyze_file_contents(file_content, data):
             filename = getattr(file_content, 'name', '알 수 없는 파일')
             update_log("📂 파일 로딩 및 패턴 최적화 중...", filename)
             
-            if hasattr(file_content, 'name'):  # 단일 파일
+            if hasattr(file_content, 'name'):
                 file_type = file_content.name.split('.')[-1].lower()
                 if file_type == 'csv':
                     df = pd.read_csv(file_content, dtype=str)
@@ -1031,7 +1031,7 @@ def analyze_file_contents(file_content, data):
                     df = pd.read_excel(file_content, dtype=str)
                     df['source_file'] = file_content.name
                     dfs.append(df)
-                elif file_type == 'zip':  # ZIP 파일(폴더) 처리
+                elif file_type == 'zip':
                     with zipfile.ZipFile(file_content) as z:
                         for zip_filename in z.namelist():
                             if zip_filename.endswith(('.csv', '.xlsx', '.xls')):
@@ -1058,7 +1058,6 @@ def analyze_file_contents(file_content, data):
                 pattern_text = str(item.get('text', '')).lower()
                 words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text).split())
                 
-                # 각 단어를 키로 사용하여 패턴 인덱스 저장
                 for word in words:
                     if len(word) >= 2:
                         pattern_lookup[word].append((idx, words))
@@ -1067,8 +1066,10 @@ def analyze_file_contents(file_content, data):
 
             # 텍스트 컬럼 처리
             text_columns = df.select_dtypes(include=['object']).columns
-            total_patterns_found = 0
             all_results = []
+            
+            # 패턴별 첫 번째 발견 인스턴스만 저장하기 위한 세트
+            found_patterns = set()
             
             progress_bar = st.progress(0)
             progress_text = st.empty()
@@ -1076,103 +1077,131 @@ def analyze_file_contents(file_content, data):
             def analyze_text_batch(texts, batch_idx, total_batches, source_file):
                 """텍스트 배치 고속 분석"""
                 batch_results = []
-                potential_matches = defaultdict(set)
                 
-                # 1단계: 빠른 키워드 매칭
-                for text_idx, text in enumerate(texts):
-                    # 숫자형 데이터 처리
-                    if isinstance(text, (int, float)):
-                        text = str(text)
-                    # None 값 처리    
-                    if not isinstance(text, str):
-                        continue
-                        
-                    text_lower = text.lower()
-                    words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', text_lower).split())
+                for text in texts:
+                    # 패턴 매칭 분석
+                    pattern_results = analyze_single_text(text, pattern_lookup, data, found_patterns)
+                    if pattern_results:
+                        for result in pattern_results:
+                            result['source_file'] = source_file
+                        batch_results.extend(pattern_results)
                     
-                    # 각 단어에 대해 가능한 패턴 찾기
-                    for word in words:
-                        if len(word) >= 2 and word in pattern_lookup:
-                            for pattern_idx, pattern_words in pattern_lookup[word]:
-                                potential_matches[text_idx].add(pattern_idx)
-                
-                # 2단계: 정확한 매칭 검사
-                for text_idx, pattern_indices in potential_matches.items():
-                    text = texts[text_idx]
-                    if isinstance(text, (int, float)):
-                        text = str(text)
-                    text_lower = text.lower()
-                    text_words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', text_lower).split())
-                    
-                    for pattern_idx in pattern_indices:
-                        pattern_item = data[pattern_idx]
-                        pattern_text = str(pattern_item['text']).lower()
-                        pattern_words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text).split())
-                        
-                        # 워드 매칭 스코어 계산
-                        common_words = text_words & pattern_words
-                        if common_words:
-                            match_score = len(common_words) / len(pattern_words)
-                            if match_score >= 0.7:  # 임계값
-                                try:
-                                    danger_level = int(pattern_item.get('dangerlevel', 0))
-                                except (ValueError, TypeError):
-                                    danger_level = 0
-                                    
-                                batch_results.append({
-                                    'text': text,
-                                    'pattern': pattern_item['text'],
-                                    'analysis': pattern_item['output'],
-                                    'danger_level': danger_level,
-                                    'url': pattern_item.get('url', ''),
-                                    'match_score': match_score,
-                                    'source_file': source_file
-                                })
+                    # 맞춤법 검사 (필요한 경우)
+                    if hasattr(spell_checker, 'check'):
+                        spell_check_result = spell_checker.check(text)
+                        if spell_check_result['corrections']:
+                            spell_result = {
+                                'text': text,
+                                'pattern': 'SPELL_CHECK',
+                                'analysis': '맞춤법 오류 발견',
+                                'corrections': spell_check_result['corrections'],
+                                'corrected_text': spell_check_result['corrected'],
+                                'danger_level': 30,
+                                'match_score': 1.0,
+                                'source_file': source_file,
+                                'is_spell_check': True
+                            }
+                            batch_results.append(spell_result)
                 
                 return batch_results
 
-            # 병렬 처리를 위한 배치 처리
-            total_rows = df[text_columns].notna().sum().sum()
-            processed_rows = 0
-            batch_size = 5000  # 대용량 배치
-            
-            for col_idx, col in enumerate(text_columns):
-                if col == 'source_file':  # source_file 컬럼 제외
-                    continue
+            def analyze_single_text(text, pattern_lookup, data, found_patterns):
+                """단일 텍스트 분석"""
+                if not isinstance(text, str):
+                    return []
                     
-                texts = df[col].dropna().tolist()
-                source_files = df.loc[df[col].notna(), 'source_file'].tolist()
-                total_batches = (len(texts) + batch_size - 1) // batch_size
+                text_lower = text.lower()
+                text_words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', text_lower).split())
+                matches = []
                 
-                for batch_idx in range(total_batches):
-                    start_idx = batch_idx * batch_size
-                    end_idx = min((batch_idx + 1) * batch_size, len(texts))
-                    batch_texts = texts[start_idx:end_idx]
-                    batch_sources = source_files[start_idx:end_idx]
+                # 빠른 키워드 매칭
+                potential_patterns = set()
+                for word in text_words:
+                    if len(word) >= 2 and word in pattern_lookup:
+                        for pattern_idx, pattern_words in pattern_lookup[word]:
+                            potential_patterns.add(pattern_idx)
+                
+                # 정확한 매칭 검사
+                for pattern_idx in potential_patterns:
+                    pattern_item = data[pattern_idx]
+                    pattern_text = str(pattern_item['text']).lower()
                     
-                    # 배치 분석
-                    for text, source_file in zip(batch_texts, batch_sources):
-                        results = analyze_text_batch([text], 0, 1, source_file)
-                        if results:
-                            # 컬럼 정보 추가
-                            for r in results:
-                                r['column'] = col
-                            all_results.extend(results)
-                            total_patterns_found += len(results)
+                    # 이미 발견된 패턴은 건너뛰기
+                    if pattern_text in found_patterns:
+                        continue
+                        
+                    pattern_words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text).split())
                     
-                    # 진행률 업데이트
-                    processed_rows += len(batch_texts)
+                    common_words = text_words & pattern_words
+                    if common_words:
+                        match_score = len(common_words) / len(pattern_words)
+                        if match_score >= 0.7:
+                            try:
+                                danger_level = int(pattern_item.get('dangerlevel', 0))
+                            except (ValueError, TypeError):
+                                danger_level = 0
+                                
+                            # 패턴을 발견된 것으로 표시
+                            found_patterns.add(pattern_text)
+                                
+                            matches.append({
+                                'text': text,
+                                'pattern': pattern_item['text'],
+                                'analysis': pattern_item['output'],
+                                'danger_level': danger_level,
+                                'url': pattern_item.get('url', ''),
+                                'match_score': match_score
+                            })
+                
+                return matches
+
+            # 배치 처리 설정
+            batch_size = 1000
+            max_workers = min(32, (os.cpu_count() or 1) * 4)
+            
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = []
+                processed_rows = 0
+                total_rows = df[text_columns].notna().sum().sum()
+                
+                for col in text_columns:
+                    if col == 'source_file':
+                        continue
+                        
+                    texts = df[col].dropna().tolist()
+                    source_files = df.loc[df[col].notna(), 'source_file'].tolist()
+                    
+                    for i in range(0, len(texts), batch_size):
+                        batch_texts = texts[i:i + batch_size]
+                        batch_sources = source_files[i:i + batch_size]
+                        
+                        future = executor.submit(
+                            analyze_text_batch,
+                            batch_texts,
+                            i // batch_size,
+                            (len(texts) + batch_size - 1) // batch_size,
+                            batch_sources[0]
+                        )
+                        futures.append(future)
+                
+                # 결과 수집
+                for idx, future in enumerate(as_completed(futures)):
+                    results = future.result()
+                    if results:
+                        all_results.extend(results)
+                    
+                    processed_rows += batch_size
                     progress = min(processed_rows / total_rows, 1.0)
                     progress_bar.progress(progress)
                     
-                    if batch_idx % 2 == 0:  # 로그 업데이트 빈도 조절
+                    if idx % 10 == 0:
                         elapsed_time = time.time() - start_time
                         speed = processed_rows / elapsed_time if elapsed_time > 0 else 0
                         update_log(f"""
                             📊 분석 진행 중:
                             - 처리 속도: {speed:.0f} 행/초
                             - 처리된 행: {processed_rows:,}/{total_rows:,}
-                            - 발견된 패턴: {total_patterns_found:,}개
+                            - 발견된 고유 패턴: {len(found_patterns):,}개
                         """, filename)
             
             # 최종 결과 정리
@@ -1180,14 +1209,15 @@ def analyze_file_contents(file_content, data):
             progress_text.empty()
             
             if all_results:
-                # 최종 정렬 및 중복 제거
-                seen = set()
-                unique_results = []
-                for r in sorted(all_results, key=lambda x: (-x['match_score'], -x['danger_level'])):
-                    key = (r['text'], r['pattern'], r['source_file'])
-                    if key not in seen:
-                        seen.add(key)
-                        unique_results.append(r)
+                # 패턴별로 하나의 대표 결과만 선택
+                unique_patterns = {}
+                for result in all_results:
+                    pattern = result.get('pattern')
+                    if pattern not in unique_patterns:
+                        unique_patterns[pattern] = result
+                
+                # 최종 결과 리스트 생성
+                final_results = list(unique_patterns.values())
                 
                 total_time = time.time() - start_time
                 update_log(f"""
@@ -1195,13 +1225,15 @@ def analyze_file_contents(file_content, data):
                     - 처리 시간: {total_time:.1f}초
                     - 처리 속도: {total_rows/total_time:.0f} 행/초
                     - 총 처리된 행: {processed_rows:,}개
-                    - 발견된 패턴: {total_patterns_found:,}개
+                    - 발견된 고유 패턴: {len(final_results):,}개
                 """, filename)
                 
                 return {
-                    'total_patterns': len(unique_results),
-                    'results': unique_results[:1000],
-                    'filename': filename
+                    'total_patterns': len(final_results),
+                    'results': final_results,
+                    'filename': filename,
+                    'pattern_count': len(found_patterns),
+                    'spell_check_count': len([r for r in final_results if r.get('is_spell_check')])
                 }
             else:
                 update_log(f"✅ {filename}에서 발견된 패턴이 없습니다.")
