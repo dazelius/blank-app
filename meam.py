@@ -1203,164 +1203,140 @@ def group_similar_patterns(pattern_results, similarity_threshold=0.9):
     return grouped_results
 
 def display_file_analysis_results(analysis_results):
-    """파일 분석 결과 표시 - 맞춤법 오류 처리 수정"""
     try:
         if not analysis_results or not analysis_results['results']:
-            st.warning(f"🔍 분석 결과가 없습니다.")
+            st.warning("🔍 분석 결과가 없습니다.")
             return
 
         results = analysis_results['results']
         pattern_results = [r for r in results if not r.get('is_spell_check', False)]
         spell_check_results = [r for r in results if r.get('is_spell_check', False)]
         
-        grouped_pattern_results = group_similar_patterns(pattern_results)
-        total_score = sum(r['danger_level'] for r in pattern_results)
-        high_risk_count = sum(1 for r in pattern_results if r['danger_level'] >= 70)
-
+        # 요약 정보
         st.markdown("""<div style='background-color:#2D2D2D;padding:15px;border-radius:10px;margin-bottom:20px'><h3 style='color:#E0E0E0;margin:0'>📊 분석 결과 요약</h3></div>""", unsafe_allow_html=True)
         
         col1, col2, col3, col4 = st.columns(4)
-        with col1: st.metric("위험 패턴", f"{len(grouped_pattern_results)}개")
-        with col2: st.metric("전체 위험도", f"{total_score}")
-        with col3: st.metric("고위험 패턴", f"{high_risk_count}개")
-        with col4: st.metric("맞춤법 오류", f"{len(spell_check_results)}개")
+        with col1:
+            st.metric("검출된 패턴", f"{len(pattern_results)}개")
+        with col2:
+            unique_files = len(set(r.get('source_file', '') for r in results))
+            st.metric("분석된 파일", f"{unique_files}개")
+        with col3:
+            high_risk = sum(1 for r in pattern_results if r.get('danger_level', 0) >= 70)
+            st.metric("고위험 패턴", f"{high_risk}개")
+        with col4:
+            st.metric("맞춤법 오류", f"{len(spell_check_results)}개")
 
         tab1, tab2 = st.tabs(["⚠️ 위험 패턴", "📝 맞춤법 오류"])
         
         with tab1:
-            if grouped_pattern_results:
+            if pattern_results:
                 # 파일별 그룹화
                 file_groups = {}
-                for result in grouped_pattern_results:
+                for result in pattern_results:
                     source_file = result.get('source_file', '알 수 없는 파일')
                     if source_file not in file_groups:
                         file_groups[source_file] = {'high': [], 'medium': [], 'low': []}
                     
-                    if result['danger_level'] >= 70:
+                    if result.get('danger_level', 0) >= 70:
                         file_groups[source_file]['high'].append(result)
-                    elif result['danger_level'] >= 30:
+                    elif result.get('danger_level', 0) >= 30:
                         file_groups[source_file]['medium'].append(result)
                     else:
                         file_groups[source_file]['low'].append(result)
 
-                # 파일별로 결과 표시
                 for source_file, severity_groups in file_groups.items():
-                    st.markdown(f"""
-                        <h2 style='color:#E0E0E0; border-bottom: 2px solid #555555; padding-bottom: 10px; margin-top: 30px;'>
-                            📄 {html.escape(source_file)}
-                        </h2>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"""<div style='color:#E0E0E0;border-bottom:2px solid #555;padding:10px 0;margin:20px 0 10px 0;font-size:1.2em'>📄 {html.escape(source_file)}</div>""", unsafe_allow_html=True)
 
                     severity_info = [
-                        ('high', '🚨 고위험 항목', "#FF5252"),
-                        ('medium', '⚠️ 주의 항목', "#FFD700"),
-                        ('low', '✅ 안전 항목', "#00E676")
+                        ('high', '🚨 고위험', "#FF5252"),
+                        ('medium', '⚠️ 주의', "#FFD700"),
+                        ('low', '✅ 안전', "#00E676")
                     ]
 
-                    for severity, title, border_color in severity_info:
-                        results_by_severity = severity_groups[severity]
-                        if not results_by_severity:
-                            continue
+                    for severity, title, color in severity_info:
+                        if severity_groups[severity]:
+                            st.markdown(f"""<div style='color:{color};border-left:4px solid {color};padding:5px 10px;margin:15px 0;font-weight:bold'>{title} ({len(severity_groups[severity])}개)</div>""", unsafe_allow_html=True)
+                            
+                            for result in severity_groups[severity]:
+                                with st.container():
+                                    match_score = int(result.get('match_score', 0) * 100)
+                                    st.markdown(f"""<div style='background-color:#2D2D2D;padding:15px;border-radius:8px;margin:10px 0'>
+                                        <div style='margin-bottom:10px'>
+                                            <span style='color:{color};font-weight:bold'>위험도: {result.get('danger_level', 0)}</span>
+                                            <span style='color:#888;margin-left:15px'>정확도: {match_score}%</span>
+                                        </div>""", unsafe_allow_html=True)
 
-                        st.markdown(f"""
-                            <h3 style='color:{border_color}; border-left: 6px solid {border_color}; padding-left: 10px; margin-top: 20px;'>
-                                {title} ({len(results_by_severity)}개)
-                            </h3>
-                        """, unsafe_allow_html=True)
+                                    # 검출된 텍스트 표시
+                                    if 'text' in result:
+                                        st.markdown("<div style='color:#CCC;margin:5px 0'>검출된 텍스트:</div>", unsafe_allow_html=True)
+                                        # matched_keywords를 이용한 하이라이트 처리
+                                        text = result['text']
+                                        highlighted_text = text
+                                        if 'matched_keywords' in result:
+                                            for keyword in sorted(result['matched_keywords'], key=len, reverse=True):
+                                                highlighted_text = re.sub(
+                                                    f"({re.escape(keyword)})",
+                                                    r"<span style='background-color:rgba(255,178,15,0.3);color:#FFB20F;padding:0 3px;border-radius:3px'>\1</span>",
+                                                    highlighted_text,
+                                                    flags=re.IGNORECASE
+                                                )
+                                        st.markdown(f"""<div style='background-color:#333;padding:10px;border-radius:5px;white-space:pre-wrap;font-family:monospace'>{highlighted_text}</div>""", unsafe_allow_html=True)
 
-                        for result in results_by_severity:
-                            match_percentage = int(result['match_score'] * 100)
+                                    # 패턴 정보
+                                    if 'pattern' in result:
+                                        st.markdown(f"""<div style='color:#CCC;margin:10px 0 5px 0'>매칭된 패턴:</div><div style='background-color:#333;padding:10px;border-radius:5px;color:{color}'>{html.escape(result['pattern'])}</div>""", unsafe_allow_html=True)
 
-                            with st.container():
-                                # 기본 정보 표시
-                                cols = st.columns([2, 1])
-                                with cols[0]:
-                                    st.markdown(f"<p style='color:#FFFFFF;'><strong>위험도:</strong> <span style='color:{border_color}; font-weight:bold;'>{result['danger_level']}</span></p>", unsafe_allow_html=True)
-                                with cols[1]:
-                                    st.markdown(f"<p style='color:#FFFFFF;'><strong>일치율:</strong> {match_percentage}%</p>", unsafe_allow_html=True)
+                                    # 분석 정보
+                                    if result.get('analysis'):
+                                        st.markdown(f"""<div style='color:#CCC;margin:10px 0 5px 0'>분석:</div><div style='background-color:#333;padding:10px;border-radius:5px'>{html.escape(result['analysis'])}</div>""", unsafe_allow_html=True)
 
-                                # 원본 텍스트 표시
-                                st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>발견된 텍스트:</div>", unsafe_allow_html=True)
-                                if 'text' in result:
-                                    try:
-                                        highlighted_text = highlight_pattern_in_text(result['text'], result['pattern'])
-                                        st.markdown(f"""
-                                            <div style='white-space: pre-wrap; font-family: "Noto Sans KR", sans-serif; 
-                                                    background-color: #333333; padding: 10px; border-radius: 5px; 
-                                                    color: #FFFFFF; margin-bottom: 10px;'>
-                                                {highlighted_text}
-                                            </div>
-                                        """, unsafe_allow_html=True)
-                                    except:
-                                        st.markdown(f"""
-                                            <div style='background-color: #333333; padding: 10px; border-radius: 5px; color: #FFFFFF;'>
-                                                {html.escape(str(result['text']))}
-                                            </div>
-                                        """, unsafe_allow_html=True)
-
-                                # 분석 정보 표시
-                                st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>분석:</div>", unsafe_allow_html=True)
-                                if 'analysis' in result:
-                                    st.markdown(f"""
-                                        <div style='background-color: rgba{tuple(int(border_color[i:i+2], 16) for i in (1, 3, 5))}, 0.1); 
-                                                padding: 10px; border-radius: 5px; color: #FFFFFF;'>
-                                            {html.escape(str(result['analysis']))}
-                                        </div>
-                                    """, unsafe_allow_html=True)
-
-                                # 참고 자료 링크
-                                if result.get("url"):
-                                    with st.container():
+                                    # 참고 자료
+                                    if result.get('url'):
                                         if 'thumbnail' in result:
                                             try:
                                                 st.image(result['thumbnail'], width=200)
                                             except:
                                                 pass
-                                        st.markdown(f"""
-                                            <p><strong>🔗 <a href='{html.escape(result["url"])}' 
-                                               target='_blank' style='color:{border_color};'>참고 자료</a></strong></p>
-                                        """, unsafe_allow_html=True)
+                                        st.markdown(f"""<div style='margin-top:10px'><a href='{html.escape(result["url"])}' target='_blank' style='color:{color};text-decoration:none'>🔗 참고 자료</a></div>""", unsafe_allow_html=True)
 
-                            st.markdown("<hr style='border: none; height: 1px; background-color: #555555;'>", unsafe_allow_html=True)
+                                    st.markdown("</div>", unsafe_allow_html=True)
             else:
                 st.info("위험 패턴이 발견되지 않았습니다.")
 
-        # 맞춤법 검사 결과 표시 부분 수정
         with tab2:
             if spell_check_results:
                 for result in spell_check_results:
                     source_file = result.get('source_file', '알 수 없는 파일')
                     st.markdown(f"""<div style='background-color:#2D2D2D;padding:15px;border-radius:10px;margin:10px 0'><h4 style='color:#E0E0E0;margin:0'>📄 {html.escape(source_file)}</h4></div>""", unsafe_allow_html=True)
                     
-                    st.markdown("<div style='font-weight:bold;color:#FFFFFF'>원문:</div>", unsafe_allow_html=True)
-                    st.markdown(f"""<div style='background-color:#333333;padding:10px;border-radius:5px;color:#FFFFFF'>{html.escape(str(result['text']))}</div>""", unsafe_allow_html=True)
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown("<div style='color:#CCC;font-weight:bold'>원문:</div>", unsafe_allow_html=True)
+                        st.markdown(f"""<div style='background-color:#333;padding:10px;border-radius:5px;color:#FFF'>{html.escape(str(result['text']))}</div>""", unsafe_allow_html=True)
                     
-                    if result.get('corrected_text'):
-                        st.markdown("<div style='font-weight:bold;color:#FFFFFF;margin-top:10px'>수정문:</div>", unsafe_allow_html=True)
-                        st.markdown(f"""<div style='background-color:#333333;padding:10px;border-radius:5px;color:#00E676'>{html.escape(str(result['corrected_text']))}</div>""", unsafe_allow_html=True)
+                    with col2:
+                        if result.get('corrected_text'):
+                            st.markdown("<div style='color:#CCC;font-weight:bold'>수정문:</div>", unsafe_allow_html=True)
+                            st.markdown(f"""<div style='background-color:#333;padding:10px;border-radius:5px;color:#00E676'>{html.escape(str(result['corrected_text']))}</div>""", unsafe_allow_html=True)
                     
                     if result.get('spelling_errors'):
-                        st.markdown("<div style='font-weight:bold;color:#FFFFFF;margin-top:10px'>맞춤법 오류 목록:</div>", unsafe_allow_html=True)
-                        
-                        # 맞춤법 오류 항목 처리 수정
+                        st.markdown("<div style='color:#CCC;font-weight:bold;margin-top:10px'>맞춤법 수정사항:</div>", unsafe_allow_html=True)
                         for correction in result['spelling_errors']:
-                            # correction 객체의 구조에 따라 처리
                             if isinstance(correction, dict):
                                 original = correction.get('original', '')
                                 corrected = correction.get('corrected', '')
                             elif isinstance(correction, (list, tuple)) and len(correction) == 2:
                                 original, corrected = correction
                             else:
-                                continue  # 알 수 없는 형식은 건너뛰기
+                                continue
                                 
-                            st.markdown(f"""
-                                <div style='background-color:#3D3D3D;padding:10px;border-radius:5px;margin:5px 0'>
-                                    <p style='color:#FF5252;margin:0'>🔍 오류: {html.escape(str(original))}</p>
-                                    <p style='color:#00E676;margin:0'>✅ 수정: {html.escape(str(corrected))}</p>
-                                </div>
-                            """, unsafe_allow_html=True)
-                            
-                    st.markdown("<hr style='border:none;height:1px;background-color:#555555;margin:20px 0'>", unsafe_allow_html=True)
+                            st.markdown(f"""<div style='background-color:#333;padding:10px;border-radius:5px;margin:5px 0'>
+                                <span style='color:#FF5252'>🔍 {html.escape(str(original))}</span> → 
+                                <span style='color:#00E676'>✓ {html.escape(str(corrected))}</span>
+                            </div>""", unsafe_allow_html=True)
+                    
+                    st.markdown("<hr style='border:none;height:1px;background-color:#555;margin:20px 0'>", unsafe_allow_html=True)
             else:
                 st.info("맞춤법 오류가 발견되지 않았습니다.")
 
