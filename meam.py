@@ -1463,34 +1463,172 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def display_analysis_results(patterns, total_score):
-    """분석 결과 표시 - 오탈자 및 하이라이트 기능 추가"""
-    danger_level_class = get_danger_level_class(total_score)
-    st.markdown(f"""
-        <div class="danger-meter">
-            <h2>전체 위험도 점수</h2>
-            <div class="danger-score {danger_level_class}">{total_score}</div>
-        </div>
-    """, unsafe_allow_html=True)
-
-    for pattern in patterns:
-        danger_level_class = get_danger_level_class(pattern['danger_level'])
-        thumbnail_html = ""
-        if 'thumbnail' in pattern:
-            thumbnail_html = f'<img src="{pattern["thumbnail"]}" style="max-width:100%;">'
-        
-        highlighted_text = highlight_pattern_in_text(pattern['original_text'], pattern['pattern'])
-        match_percentage = int(pattern['match_score'] * 100)
-        
-        st.markdown(f"""
-            <div class="analysis-card">
-                <h5>🔍 발견된 패턴:</h5>
-                <div class="highlighted-text">{highlighted_text}</div>
-                <p>📊 위험도: <span class="{danger_level_class}">{pattern['danger_level']}</span></p>
-                <p>🎯 일치율: {match_percentage}%</p>
-                <p>📝 분석: {pattern['analysis']}</p>
-                {f'<p>🔗 <a href="{pattern["url"]}" target="_blank">참고 자료</a></p>' if pattern['url'] else ''}
-                {thumbnail_html}
+    """분석 결과 표시 - 개선된 버전"""
+    try:
+        # 전체 위험도 표시
+        danger_level_class = get_danger_level_class(total_score)
+        st.markdown("""
+            <div style='background-color: #2D2D2D; padding: 15px; border-radius: 10px; margin: 15px 0;'>
+                <h3 style='color: #E0E0E0; margin-bottom: 10px;'>📊 분석 결과 요약</h3>
+            </div>
         """, unsafe_allow_html=True)
+
+        # 요약 통계
+        high_risk = sum(1 for p in patterns if p['danger_level'] >= 70)
+        medium_risk = sum(1 for p in patterns if 30 <= p['danger_level'] < 70)
+        low_risk = sum(1 for p in patterns if p['danger_level'] < 30)
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("전체 위험도", f"{total_score}")
+        with col2:
+            st.metric("고위험 패턴", f"{high_risk}개")
+        with col3:
+            st.metric("중위험 패턴", f"{medium_risk}개")
+        with col4:
+            st.metric("저위험 패턴", f"{low_risk}개")
+
+        # 위험도별 그룹화
+        grouped_patterns = {
+            'high': [],
+            'medium': [],
+            'low': []
+        }
+        
+        for pattern in patterns:
+            if pattern['danger_level'] >= 70:
+                grouped_patterns['high'].append(pattern)
+            elif pattern['danger_level'] >= 30:
+                grouped_patterns['medium'].append(pattern)
+            else:
+                grouped_patterns['low'].append(pattern)
+
+        # 각 위험도 그룹별로 표시
+        severity_info = [
+            ('high', '🚨 고위험 항목', "#FF5252"),
+            ('medium', '⚠️ 주의 항목', "#FFD700"),
+            ('low', '✅ 안전 항목', "#00E676")
+        ]
+
+        for severity, title, border_color in severity_info:
+            patterns_by_severity = grouped_patterns[severity]
+            if not patterns_by_severity:
+                continue
+
+            st.markdown(f"""
+                <div style='background-color: #2D2D2D; padding: 15px; border-radius: 10px; margin: 15px 0;'>
+                    <h3 style='color: {border_color};'>{title} ({len(patterns_by_severity)}개)</h3>
+                </div>
+            """, unsafe_allow_html=True)
+
+            # 유사 패턴 그룹화
+            similar_groups = {}
+            used_patterns = set()
+
+            for i, pattern in enumerate(patterns_by_severity):
+                if i in used_patterns:
+                    continue
+
+                similar_group = []
+                base_text = pattern.get('text', '')
+                base_pattern = pattern.get('pattern', '')
+
+                for j, other_pattern in enumerate(patterns_by_severity[i+1:], i+1):
+                    if j in used_patterns:
+                        continue
+
+                    other_text = other_pattern.get('text', '')
+                    other_pattern_text = other_pattern.get('pattern', '')
+
+                    # 유사도 검사
+                    text_similarity = difflib.SequenceMatcher(None, base_text, other_text).ratio()
+                    pattern_similarity = difflib.SequenceMatcher(None, base_pattern, other_pattern_text).ratio()
+
+                    if text_similarity > 0.8 or pattern_similarity > 0.8:
+                        similar_group.append(other_pattern)
+                        used_patterns.add(j)
+
+                if similar_group:
+                    similar_groups[i] = [pattern] + similar_group
+                elif i not in used_patterns:
+                    similar_groups[i] = [pattern]
+
+            # 그룹별로 표시
+            for group_patterns in similar_groups.values():
+                main_pattern = group_patterns[0]
+                match_percentage = int(main_pattern['match_score'] * 100)
+
+                with st.container():
+                    # 메인 패턴 표시
+                    cols = st.columns([2, 1, 1])
+                    with cols[0]:
+                        st.markdown(f"<p style='color:#FFFFFF;'><strong>위험도:</strong> <span style='color:{border_color}; font-weight:bold;'>{main_pattern['danger_level']}</span></p>", unsafe_allow_html=True)
+                    with cols[1]:
+                        st.markdown(f"<p style='color:#FFFFFF;'><strong>일치율:</strong> {match_percentage}%</p>", unsafe_allow_html=True)
+                    with cols[2]:
+                        if len(group_patterns) > 1:
+                            st.markdown(f"<p style='color:#FFFFFF;'><strong>유사 패턴:</strong> {len(group_patterns)-1}개</p>", unsafe_allow_html=True)
+
+                    # 원본 텍스트와 하이라이트
+                    st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>발견된 텍스트:</div>", unsafe_allow_html=True)
+                    try:
+                        highlighted_text = highlight_pattern_in_text(main_pattern['text'], main_pattern['pattern'])
+                        st.markdown(f"""
+                            <div style='white-space: pre-wrap; font-family: "Noto Sans KR", sans-serif; 
+                                    background-color: #333333; padding: 10px; border-radius: 5px; 
+                                    color: #FFFFFF; margin-bottom: 10px;'>
+                                {highlighted_text}
+                            </div>
+                        """, unsafe_allow_html=True)
+                    except:
+                        st.markdown(f"<div style='background-color: #333333; padding: 10px; border-radius: 5px; color: #FFFFFF;'>{html.escape(str(main_pattern.get('text', '')))}</div>", unsafe_allow_html=True)
+
+                    # 유사 패턴 표시
+                    if len(group_patterns) > 1:
+                        with st.expander(f"유사한 패턴 {len(group_patterns)-1}개 보기"):
+                            for similar in group_patterns[1:]:
+                                try:
+                                    highlighted_similar = highlight_pattern_in_text(similar['text'], similar['pattern'])
+                                    st.markdown(f"""
+                                        <div style='background-color: #2D2D2D; padding: 10px; 
+                                                border-radius: 5px; margin: 5px 0;'>
+                                            <div style='color: #E0E0E0;'>{highlighted_similar}</div>
+                                            <p style='color: #888888; font-size: 0.9em;'>
+                                                일치율: {int(similar['match_score'] * 100)}%
+                                            </p>
+                                        </div>
+                                    """, unsafe_allow_html=True)
+                                except:
+                                    st.markdown(f"<div style='background-color: #2D2D2D; padding: 10px; border-radius: 5px; margin: 5px 0;'>{html.escape(str(similar.get('text', '')))}</div>", unsafe_allow_html=True)
+
+                    # 분석 정보
+                    st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>분석:</div>", unsafe_allow_html=True)
+                    st.markdown(f"""
+                        <div style='background-color: rgba{tuple(int(border_color[i:i+2], 16) for i in (1, 3, 5))}, 0.1); 
+                                padding: 10px; border-radius: 5px; color: #FFFFFF;'>
+                            {html.escape(str(main_pattern.get('analysis', '')))}
+                        </div>
+                    """, unsafe_allow_html=True)
+
+                    # 참고 자료 및 썸네일
+                    if main_pattern.get("url"):
+                        with st.container():
+                            if 'thumbnail' in main_pattern:
+                                try:
+                                    st.image(main_pattern['thumbnail'], width=200)
+                                except:
+                                    pass
+                            st.markdown(f"""
+                                <p><strong>🔗 <a href='{html.escape(main_pattern["url"])}' 
+                                   target='_blank' style='color:{border_color};'>참고 자료</a></strong></p>
+                            """, unsafe_allow_html=True)
+
+                    st.markdown("<hr style='border: none; height: 1px; background-color: #555555; margin: 20px 0;'>", unsafe_allow_html=True)
+
+    except Exception as e:
+        st.error(f"결과 표시 중 오류 발생: {str(e)}")
+        import traceback
+        st.error(f"상세 오류: {traceback.format_exc()}")
 
 def main():
     st.markdown('<h1 class="main-title">StringAnalysis</h1>', unsafe_allow_html=True)
