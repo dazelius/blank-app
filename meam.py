@@ -984,7 +984,6 @@ def analyze_file_contents(file_content, data):
             
             # 메모리 최적화
             del dfs
-            import gc
             gc.collect()
 
             # 텍스트 컬럼만 처리
@@ -1042,7 +1041,8 @@ def analyze_file_contents(file_content, data):
                                     'url': pattern.get('url', ''),
                                     'match_score': similarity,
                                     'source_file': source_file,
-                                    'column': col
+                                    'column': col,
+                                    'matched_keywords': list(text_words & pattern_index.keys())
                                 }
                                 batch_results.append(result)
                         
@@ -1083,9 +1083,16 @@ def analyze_file_contents(file_content, data):
             status_text.empty()
 
             if all_results:
+                # 결과 정렬 및 중복 제거
+                pattern_results = [r for r in all_results if not r.get('is_spell_check', False)]
+                spell_results = [r for r in all_results if r.get('is_spell_check', False)]
+                
+                # 패턴 결과 정렬 (위험도와 매칭 점수로)
+                pattern_results.sort(key=lambda x: (-x['danger_level'], -x['match_score']))
+                
                 return {
-                    'total_patterns': len([r for r in all_results if not r.get('is_spell_check', False)]),
-                    'results': all_results,
+                    'total_patterns': len(pattern_results),
+                    'results': pattern_results + spell_results[:1000],  # 상위 1000개 결과만
                     'filename': filename
                 }
             return None
