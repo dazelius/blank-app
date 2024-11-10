@@ -180,37 +180,72 @@ st.markdown("""
 import re
 from collections import defaultdict
 
-import re
-from collections import defaultdict
+def get_or_create_checker_worksheet():
+    """checker 워크시트를 가져오거나 생성"""
+    try:
+        credentials = {
+            "type": "service_account",
+            "project_id": st.secrets["gcp_service_account"]["project_id"],
+            "private_key_id": st.secrets["gcp_service_account"]["private_key_id"],
+            "private_key": st.secrets["gcp_service_account"]["private_key"],
+            "client_email": st.secrets["gcp_service_account"]["client_email"],
+            "client_id": st.secrets["gcp_service_account"]["client_id"],
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_x509_cert_url": st.secrets["gcp_service_account"]["client_x509_cert_url"]
+        }
+        
+        SCOPES = [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive'
+        ]
+        
+        creds = service_account.Credentials.from_service_account_info(credentials, scopes=SCOPES)
+        client = gspread.authorize(creds)
+        
+        sheet = client.open_by_url('https://docs.google.com/spreadsheets/d/1wPchxwAssBf706VuvxhGp4ESt3vj-N9RLcMaUF075ug/edit?gid=137455637#gid=137455637')
+        
+        try:
+            # checker 워크시트 가져오기 시도
+            checker_sheet = sheet.worksheet('checker')
+        except gspread.exceptions.WorksheetNotFound:
+            # checker 워크시트가 없으면 생성
+            checker_sheet = sheet.add_worksheet('checker', 1000, 2)
+            checker_sheet.update('A1:B1', [['오류', '수정']])
+            st.success("'checker' 워크시트가 생성되었습니다.")
+            
+        return checker_sheet
+        
+    except Exception as e:
+        st.error(f"워크시트 처리 중 오류 발생: {str(e)}")
+        return None
 
 class SheetBasedSpellChecker:
     """구글 시트 기반 맞춤법 검사기"""
     
     def __init__(self):
-        self.rules = self._load_rules_from_sheet()
+        self.rules = {}  # 초기화
+        self.load_rules()  # 규칙 로드
         
-    def _load_rules_from_sheet(self):
+    def load_rules(self):
         """구글 시트에서 규칙 로드"""
         try:
             checker_sheet = get_or_create_checker_worksheet()
             if not checker_sheet:
-                return {}
+                return
             
             # 데이터 가져오기
             data = checker_sheet.get_all_values()
             
             # 헤더 제외하고 규칙 딕셔너리 생성
-            rules = {}
             if len(data) > 1:  # 헤더 행이 있는 경우
                 for row in data[1:]:  # 첫 행(헤더) 제외
                     if len(row) >= 2 and row[0] and row[1]:  # A열과 B열이 모두 존재하는 경우만
-                        rules[row[0].strip()] = row[1].strip()
-            
-            return rules
+                        self.rules[row[0].strip()] = row[1].strip()
             
         except Exception as e:
             st.error(f"규칙 로딩 중 오류 발생: {str(e)}")
-            return {}
 
     def check(self, text):
         """텍스트 맞춤법 검사 - 정규식과 부분 문자열 매칭 지원"""
@@ -232,15 +267,13 @@ class SheetBasedSpellChecker:
             
             for wrong, right in self.rules.items():
                 try:
-                    # 정규식 패턴인지 확인 (^로 시작하고 $로 끝나는 경우)
+                    # 정규식 패턴인지 확인
                     if wrong.startswith('^') and wrong.endswith('$'):
-                        # 정규식 패턴 적용
                         pattern = re.compile(wrong)
                         matches = pattern.finditer(text)
                         
                         for match in matches:
                             matched_text = match.group(0)
-                            # 정규식 그룹 참조 처리
                             corrected_word = re.sub(wrong, right, matched_text)
                             
                             if matched_text != corrected_word:
@@ -288,7 +321,7 @@ class SheetBasedSpellChecker:
                                 'replacement': right
                             })
             
-            # 교정 결과 정렬 (원본 텍스트 길이 기준 내림차순)
+            # 교정 결과 정렬
             corrections.sort(key=lambda x: len(x['original']), reverse=True)
             
             return {
