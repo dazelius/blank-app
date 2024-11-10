@@ -1310,10 +1310,6 @@ def display_file_analysis_results(analysis_results):
                                                 </div>
                                             """, unsafe_allow_html=True)
 
-                                # 패턴 정보 표시
-                                st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>매칭된 패턴:</div>", unsafe_allow_html=True)
-                                st.markdown(f"<div style='background-color: #444444; padding: 8px; border-radius: 5px; color: #FFFFFF;'>{html.escape(str(result['pattern']))}</div>", unsafe_allow_html=True)
-
                                 # 분석 결과 표시
                                 st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>분석:</div>", unsafe_allow_html=True)
                                 st.markdown(f"<div style='background-color: rgba{tuple(int(border_color[i:i+2], 16) for i in (1, 3, 5))}, 0.1); padding: 10px; border-radius: 5px; color: #FFFFFF;'>{html.escape(str(result['analysis']))}</div>", unsafe_allow_html=True)
