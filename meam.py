@@ -12,6 +12,7 @@ import html
 import requests
 from PIL import Image
 from io import BytesIO
+from hanspell import spell_checker  # 한글 맞춤법 검사기 추가
 
 # 페이지 설정
 st.set_page_config(
@@ -267,6 +268,70 @@ def preprocess_patterns(data):
             'medium': [],
             'long': []
         }
+
+
+def check_spelling(text):
+    """한글 맞춤법 검사 함수"""
+    try:
+        result = spell_checker.check(text)
+        return {
+            'checked': result.checked,
+            'errors': len(result.errors),
+            'words': result.words,
+            'original': text
+        }
+    except Exception as e:
+        st.error(f"맞춤법 검사 중 오류 발생: {str(e)}")
+        return None
+
+
+def display_spelling_check(result):
+    """맞춤법 검사 결과 표시"""
+    if not result:
+        return
+        
+    st.markdown("""
+        <div style='background-color: #2D2D2D; padding: 15px; border-radius: 10px; margin: 15px 0;'>
+            <h4 style='color: #E0E0E0; margin-bottom: 10px;'>📝 맞춤법 검사 결과</h4>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    if result['errors'] > 0:
+        # 원본 텍스트와 수정된 텍스트 비교
+        differ = difflib.Differ()
+        diff = list(differ.compare(result['original'].split(), result['checked'].split()))
+        
+        # 수정사항 하이라이트
+        st.markdown("<h5>수정된 내용:</h5>", unsafe_allow_html=True)
+        highlighted_text = ""
+        for word in diff:
+            if word.startswith('  '):  # 변경 없음
+                highlighted_text += f"<span>{word[2:]}</span> "
+            elif word.startswith('- '):  # 삭제된 단어
+                highlighted_text += f"<span style='color: #FF5252; text-decoration: line-through;'>{word[2:]}</span> "
+            elif word.startswith('+ '):  # 추가된 단어
+                highlighted_text += f"<span style='color: #00E676; font-weight: bold;'>{word[2:]}</span> "
+        
+        st.markdown(f"""
+            <div style='background-color: #333333; padding: 10px; border-radius: 5px; margin: 10px 0;'>
+                {highlighted_text}
+            </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown(f"""
+            <div style='margin: 10px 0;'>
+                <p>🔍 발견된 맞춤법 오류: {result['errors']}개</p>
+                <p>✨ 교정된 텍스트:</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown(f"""
+            <div style='background-color: #333333; padding: 10px; border-radius: 5px; color: #00E676;'>
+                {result['checked']}
+            </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.success("✅ 맞춤법 오류가 발견되지 않았습니다.")
 
 def check_pattern(input_data, pattern_data, threshold=0.7):
     """단일 패턴 매칭 검사 - 최적화 버전"""
@@ -1334,7 +1399,7 @@ def main():
             return
             
         # 탭 생성
-        tab1, tab2 = st.tabs(["🔍 문장 분석", "✏️ 패턴 등록"])
+        tab1, tab2, tab3 = st.tabs(["🔍 문장 분석", "✏️ 패턴 등록", "📝 맞춤법 검사"])
 
         with tab1:
             analysis_type = st.radio(
@@ -1355,9 +1420,11 @@ def main():
                     st.write("")
                     st.write("")
                     analyze_button = st.button("🔍 위험도 분석", use_container_width=True, key="analyze")
+                    spell_check = st.checkbox("맞춤법 검사 포함", value=True)
                 
                 if analyze_button and input_text:
                     with st.spinner('🔄 문장을 분석하고 있습니다...'):
+                        # 위험도 분석
                         found_patterns = find_matching_patterns(input_text, data)
                         if found_patterns:
                             total_score = calculate_danger_score(found_patterns)
@@ -1365,6 +1432,13 @@ def main():
                             display_analysis_results(found_patterns, total_score)
                         else:
                             st.info("👀 특별한 위험 패턴이 발견되지 않았습니다.")
+                        
+                        # 맞춤법 검사
+                        if spell_check:
+                            with st.spinner('🔄 맞춤법 검사 중...'):
+                                spelling_result = check_spelling(input_text)
+                                if spelling_result:
+                                    display_spelling_check(spelling_result)
             
             else:  # 파일/폴더 업로드
                 st.markdown("""
@@ -1527,6 +1601,29 @@ def main():
                         st.metric("고위험 패턴 수", len(df[df['위험도'] >= 70]))
             else:
                 st.info("등록된 패턴이 없습니다.")
+                
+        with tab3:
+            st.markdown("""
+                <div style='background-color: #2D2D2D; padding: 1rem; border-radius: 10px; margin-bottom: 1rem;'>
+                    <h4>📝 맞춤법 검사</h4>
+                    <p style='color: #E0E0E0;'>텍스트의 맞춤법을 검사합니다.</p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            spell_text = st.text_area(
+                "검사할 텍스트를 입력하세요:",
+                placeholder="맞춤법을 검사할 텍스트를 입력해주세요...",
+                height=150
+            )
+            
+            if st.button("✨ 맞춤법 검사", use_container_width=True):
+                if spell_text:
+                    with st.spinner('🔄 맞춤법을 검사하고 있습니다...'):
+                        spelling_result = check_spelling(spell_text)
+                        if spelling_result:
+                            display_spelling_check(spelling_result)
+                else:
+                    st.warning("⚠️ 검사할 텍스트를 입력해주세요!")
                 
     except Exception as e:
         st.error(f"애플리케이션 실행 중 오류가 발생했습니다: {str(e)}")
