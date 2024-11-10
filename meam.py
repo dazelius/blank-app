@@ -716,7 +716,7 @@ def get_youtube_thumbnail(url):
 
 # 3. 병렬 처리 최적화
 def find_matching_patterns(input_text, data, threshold=0.7):
-    """텍스트 패턴 매칭 - 개선된 버전"""
+    """텍스트 패턴 매칭 - 정확도 개선 버전"""
     if not data or not input_text:
         return []
         
@@ -726,7 +726,8 @@ def find_matching_patterns(input_text, data, threshold=0.7):
     
     try:
         # 입력 텍스트 전처리
-        input_text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', input_text.lower())
+        input_text_lower = str(input_text).lower()
+        input_text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', input_text_lower)
         input_words = set(w for w in input_text_cleaned.split() if w.strip())
         
         # 패턴 매칭 결과 저장
@@ -736,43 +737,60 @@ def find_matching_patterns(input_text, data, threshold=0.7):
             try:
                 if not isinstance(pattern, dict) or 'text' not in pattern:
                     continue
-                    
-                pattern_text = str(pattern['text']).lower()
-                pattern_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text)
+                
+                pattern_text = str(pattern['text'])
+                pattern_text_lower = pattern_text.lower()
+                pattern_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text_lower)
                 pattern_words = set(pattern_cleaned.split())
                 
                 if not pattern_words:
                     continue
                 
-                # 단어 기반 유사도 계산
-                common_words = input_words & pattern_words
-                if not common_words:
-                    continue
-                    
-                word_similarity = len(common_words) / len(pattern_words)
+                # 1. 정확한 문자열 포함 여부 확인
+                exact_match = pattern_text_lower in input_text_lower
                 
-                # 전체 텍스트 유사도 계산
+                # 2. 단어 기반 유사도 계산
+                common_words = input_words & pattern_words
+                word_similarity = len(common_words) / len(pattern_words) if pattern_words else 0
+                
+                # 3. 전체 텍스트 유사도 계산
                 text_similarity = difflib.SequenceMatcher(None, input_text_cleaned, pattern_cleaned).ratio()
                 
-                # 최종 유사도 점수 계산 (단어 유사도와 전체 텍스트 유사도의 가중 평균)
-                final_score = (word_similarity * 0.7 + text_similarity * 0.3)
+                # 4. 연속된 단어 매칭 검사
+                continuous_match = False
+                if len(pattern_words) > 1:
+                    pattern_seq = ' '.join(pattern_cleaned.split())
+                    if pattern_seq in input_text_cleaned:
+                        continuous_match = True
                 
-                if final_score >= threshold:
+                # 최종 유사도 점수 계산
+                # - 정확한 매칭이 있으면 높은 가중치
+                # - 연속된 단어 매칭이 있으면 추가 가중치
+                # - 단어 유사도와 전체 텍스트 유사도 조합
+                final_score = max(
+                    1.0 if exact_match else 0.0,
+                    0.9 if continuous_match else 0.0,
+                    word_similarity * 0.7 + text_similarity * 0.3
+                )
+                
+                if final_score >= threshold or exact_match or continuous_match:
                     try:
                         danger_level = int(pattern.get('dangerlevel', 0))
                     except (ValueError, TypeError):
                         danger_level = 0
                         
                     found_pattern = {
-                        'pattern': pattern['text'],
+                        'pattern': pattern_text,
                         'analysis': pattern.get('output', '분석 정보 없음'),
                         'danger_level': danger_level,
                         'url': pattern.get('url', ''),
                         'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         'match_score': final_score,
-                        'original_text': input_text,  # 원본 텍스트 저장
-                        'matched_keywords': list(common_words),  # 매칭된 키워드 저장
-                        'text': input_text  # 표시용 텍스트 필드 추가
+                        'original_text': input_text,
+                        'matched_keywords': list(common_words),
+                        'text': input_text,
+                        'exact_match': exact_match,
+                        'continuous_match': continuous_match
                     }
                     
                     if pattern.get('url') and 'youtube.com' in pattern['url']:
@@ -784,8 +802,12 @@ def find_matching_patterns(input_text, data, threshold=0.7):
                 st.error(f"패턴 '{pattern.get('text', '알 수 없는 패턴')}' 처리 중 오류 발생: {str(e)}")
                 continue
         
-        # 매치 점수와 위험도로 정렬
-        found_patterns.sort(key=lambda x: (-x['match_score'], -x['danger_level']))
+        # 매칭 품질과 위험도로 정렬
+        found_patterns.sort(key=lambda x: (x.get('exact_match', False),
+                                         x.get('continuous_match', False),
+                                         x['match_score'],
+                                         x['danger_level']), 
+                           reverse=True)
         
         return found_patterns
         
