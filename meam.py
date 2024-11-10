@@ -777,7 +777,7 @@ def get_youtube_thumbnail(url):
 
 # 3. 병렬 처리 최적화
 def find_matching_patterns(input_text, data, threshold=0.7):
-    """텍스트 패턴 매칭 - 오탈자 및 띄어쓰기 검사 추가"""
+    """텍스트 패턴 매칭 - 개선된 버전"""
     if not data or not input_text:
         return []
         
@@ -786,32 +786,8 @@ def find_matching_patterns(input_text, data, threshold=0.7):
         return []
     
     try:
-        # 한글 자모음 분리 함수
-        def decompose_hangul(text):
-            result = []
-            for char in text:
-                if '가' <= char <= '힣':
-                    # 한글 유니코드 분해
-                    code = ord(char) - 0xAC00
-                    jong = code % 28
-                    jung = ((code - jong) // 28) % 21
-                    cho = ((code - jong) // 28) // 21
-                    result.append((cho, jung, jong))
-                else:
-                    result.append(char)
-            return result
-
-        # 자모음 유사도 계산
-        def jamo_similarity(char1, char2):
-            if isinstance(char1, tuple) and isinstance(char2, tuple):
-                # 초성, 중성, 종성 각각 비교
-                matches = sum(1 for i in range(3) if char1[i] == char2[i])
-                return matches / 3
-            return 1.0 if char1 == char2 else 0.0
-
-        # 텍스트 전처리
+        # 입력 텍스트 전처리
         input_text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', input_text.lower())
-        input_jamos = decompose_hangul(input_text_cleaned)
         input_words = set(w for w in input_text_cleaned.split() if w.strip())
         
         # 패턴 매칭 결과 저장
@@ -824,80 +800,46 @@ def find_matching_patterns(input_text, data, threshold=0.7):
                     
                 pattern_text = str(pattern['text']).lower()
                 pattern_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text)
-                pattern_jamos = decompose_hangul(pattern_cleaned)
                 pattern_words = set(pattern_cleaned.split())
                 
                 if not pattern_words:
                     continue
                 
-                # 자모음 유사도 계산
-                jamo_scores = []
-                for i in range(len(input_jamos)):
-                    for j in range(len(pattern_jamos)):
-                        score = jamo_similarity(input_jamos[i], pattern_jamos[j])
-                        if score > 0.6:  # 자모음 유사도 임계값
-                            jamo_scores.append(score)
-                
-                # 단어 단위 매칭
-                word_scores = []
-                for input_word in input_words:
-                    input_word_jamos = decompose_hangul(input_word)
-                    for pattern_word in pattern_words:
-                        pattern_word_jamos = decompose_hangul(pattern_word)
-                        # 단어 길이가 비슷한 경우만 비교
-                        if abs(len(input_word_jamos) - len(pattern_word_jamos)) <= 2:
-                            similarity = sum(jamo_similarity(a, b) for a, b in 
-                                          zip(input_word_jamos, pattern_word_jamos)) / max(len(input_word_jamos), len(pattern_word_jamos))
-                            if similarity > 0.7:
-                                word_scores.append(similarity)
-                
-                # 최종 유사도 계산
-                if word_scores or jamo_scores:
-                    avg_word_score = sum(word_scores) / len(word_scores) if word_scores else 0
-                    avg_jamo_score = sum(jamo_scores) / len(jamo_scores) if jamo_scores else 0
-                    final_score = (avg_word_score * 0.7 + avg_jamo_score * 0.3)
+                # 단어 기반 유사도 계산
+                common_words = input_words & pattern_words
+                if not common_words:
+                    continue
                     
-                    if final_score >= threshold:
-                        try:
-                            danger_level = int(pattern.get('dangerlevel', 0))
-                        except (ValueError, TypeError):
-                            danger_level = 0
-                            
-                        # 오탈자 및 띄어쓰기 오류 확인
-                        spelling_errors = []
-                        spacing_errors = []
+                word_similarity = len(common_words) / len(pattern_words)
+                
+                # 전체 텍스트 유사도 계산
+                text_similarity = difflib.SequenceMatcher(None, input_text_cleaned, pattern_cleaned).ratio()
+                
+                # 최종 유사도 점수 계산 (단어 유사도와 전체 텍스트 유사도의 가중 평균)
+                final_score = (word_similarity * 0.7 + text_similarity * 0.3)
+                
+                if final_score >= threshold:
+                    try:
+                        danger_level = int(pattern.get('dangerlevel', 0))
+                    except (ValueError, TypeError):
+                        danger_level = 0
                         
-                        # 단어별 유사도 상세 분석
-                        for input_word in input_words:
-                            closest_match = None
-                            max_similarity = 0
-                            
-                            for pattern_word in pattern_words:
-                                similarity = difflib.SequenceMatcher(None, input_word, pattern_word).ratio()
-                                if 0.6 <= similarity < 1.0 and similarity > max_similarity:
-                                    closest_match = pattern_word
-                                    max_similarity = similarity
-                            
-                            if closest_match:
-                                spelling_errors.append((input_word, closest_match))
+                    found_pattern = {
+                        'pattern': pattern['text'],
+                        'analysis': pattern.get('output', '분석 정보 없음'),
+                        'danger_level': danger_level,
+                        'url': pattern.get('url', ''),
+                        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        'match_score': final_score,
+                        'original_text': input_text,  # 원본 텍스트 저장
+                        'matched_keywords': list(common_words),  # 매칭된 키워드 저장
+                        'text': input_text  # 표시용 텍스트 필드 추가
+                    }
+                    
+                    if pattern.get('url') and 'youtube.com' in pattern['url']:
+                        found_pattern['thumbnail'] = get_youtube_thumbnail(pattern['url'])
                         
-                        found_pattern = {
-                            'pattern': pattern['text'],
-                            'analysis': pattern.get('output', '분석 정보 없음'),
-                            'danger_level': danger_level,
-                            'url': pattern.get('url', ''),
-                            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            'match_score': final_score,
-                            'original_text': input_text,
-                            'matched_keywords': sorted(set(word_scores)),
-                            'spelling_errors': spelling_errors,
-                            'spacing_errors': spacing_errors
-                        }
-                        
-                        if pattern.get('url') and 'youtube.com' in pattern['url']:
-                            found_pattern['thumbnail'] = get_youtube_thumbnail(pattern['url'])
-                            
-                        found_patterns.append(found_pattern)
+                    found_patterns.append(found_pattern)
             
             except Exception as e:
                 st.error(f"패턴 '{pattern.get('text', '알 수 없는 패턴')}' 처리 중 오류 발생: {str(e)}")
@@ -910,8 +852,6 @@ def find_matching_patterns(input_text, data, threshold=0.7):
         
     except Exception as e:
         st.error(f"패턴 매칭 중 오류 발생: {str(e)}")
-        import traceback
-        st.error(f"상세 오류: {traceback.format_exc()}")
         return []
 
 def extract_keywords(text):
@@ -927,41 +867,40 @@ def extract_keywords(text):
         st.error(f"키워드 추출 중 오류 발생: {str(e)}")
         return []
 
-def highlight_pattern_in_text(original_text, pattern):
-    """텍스트 내의 패턴을 하이라이트"""
+def highlight_pattern_in_text(text, pattern, matched_keywords=None):
+    """텍스트 내의 패턴을 하이라이트 - 개선된 버전"""
     try:
-        # 패턴과 원본 텍스트를 정규화
-        pattern_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', str(pattern).lower())
-        text_cleaned = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', str(original_text).lower())
+        if not text or not pattern:
+            return html.escape(str(text))
+            
+        result = str(text)
         
-        # CSS 스타일이 적용된 하이라이트 HTML
+        # CSS 스타일 정의
         highlight_style = """
-            background: linear-gradient(104deg, rgba(255, 178, 15, 0.1) 0.9%, rgba(255, 178, 15, 0.3) 2.4%, rgba(255, 178, 15, 0.2) 5.8%, rgba(255, 178, 15, 0.1) 93%, rgba(255, 178, 15, 0.1) 96%);
-            border-radius: 4px;
+            background: linear-gradient(104deg, rgba(255, 178, 15, 0.2) 0.9%, rgba(255, 178, 15, 0.4) 2.4%, rgba(255, 178, 15, 0.3) 5.8%, rgba(255, 178, 15, 0.2) 93%, rgba(255, 178, 15, 0.2) 96%);
             padding: 0.1em 0.2em;
-            box-decoration-break: clone;
-            -webkit-box-decoration-break: clone;
-            position: relative;
+            border-radius: 4px;
             color: #FFB20F;
             font-weight: 500;
         """
         
-        # 패턴의 각 단어에 대해 하이라이트 처리
-        result_text = str(original_text)
-        pattern_words = [w for w in pattern_cleaned.split() if len(w) >= 2]
+        # 매칭된 키워드가 있는 경우 해당 키워드 하이라이트
+        if matched_keywords:
+            for keyword in matched_keywords:
+                if not keyword.strip():
+                    continue
+                pattern = re.compile(re.escape(keyword), re.IGNORECASE)
+                result = pattern.sub(
+                    lambda m: f'<span style="{highlight_style}">{m.group()}</span>',
+                    result
+                )
         
-        for word in pattern_words:
-            # 대소문자 구분 없이 매칭하되, 원본 텍스트의 대소문자는 유지
-            pattern = re.compile(re.escape(word), re.IGNORECASE)
-            result_text = pattern.sub(
-                lambda m: f'<span style="{highlight_style}">{m.group()}</span>',
-                result_text
-            )
+        return result
         
-        return result_text
     except Exception as e:
         st.error(f"하이라이트 처리 중 오류 발생: {str(e)}")
-        return str(original_text)
+        return html.escape(str(text))
+
 
 # CSS 스타일 추가
 st.markdown("""
@@ -1463,138 +1402,93 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def display_analysis_results(patterns, total_score):
-    """분석 결과 표시 - 중복 패턴 제거 및 개선된 버전"""
+    """분석 결과 표시 - 개선된 버전"""
     try:
-        # 패턴 중복 제거 (같은 패턴은 하나만 유지)
-        unique_patterns = {}
+        if not patterns:
+            st.info("매칭된 패턴이 없습니다.")
+            return
+            
+        # 패턴별 결과 표시
         for pattern in patterns:
-            pattern_key = pattern['pattern']
-            if pattern_key not in unique_patterns:
-                unique_patterns[pattern_key] = pattern
-
-        # 리스트로 변환
-        patterns = list(unique_patterns.values())
-
-        # 전체 위험도 다시 계산 (중복 제거 후)
-        total_score = sum(p['danger_level'] for p in patterns)
-
-        # 요약 표시
-        st.markdown("""
-            <div style='background-color: #2D2D2D; padding: 15px; border-radius: 10px; margin: 15px 0;'>
-                <h3 style='color: #E0E0E0; margin-bottom: 10px;'>📊 분석 결과 요약</h3>
-            </div>
-        """, unsafe_allow_html=True)
-
-        # 통계 계산 (중복 제거된 패턴 기준)
-        high_risk = sum(1 for p in patterns if p['danger_level'] >= 70)
-        medium_risk = sum(1 for p in patterns if 30 <= p['danger_level'] < 70)
-        low_risk = sum(1 for p in patterns if p['danger_level'] < 30)
-        
-        # 통계 표시
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("전체 위험도", f"{total_score}")
-        with col2:
-            st.metric("고위험 패턴", f"{high_risk}개")
-        with col3:
-            st.metric("중위험 패턴", f"{medium_risk}개")
-        with col4:
-            st.metric("저위험 패턴", f"{low_risk}개")
-
-        # 위험도별 그룹화
-        grouped_patterns = {
-            'high': [],
-            'medium': [],
-            'low': []
-        }
-        
-        for pattern in patterns:
-            if pattern['danger_level'] >= 70:
-                grouped_patterns['high'].append(pattern)
-            elif pattern['danger_level'] >= 30:
-                grouped_patterns['medium'].append(pattern)
+            danger_level = pattern['danger_level']
+            match_score = pattern['match_score']
+            match_percentage = int(match_score * 100)
+            
+            # 위험도에 따른 색상 설정
+            if danger_level >= 70:
+                border_color = "#FF5252"
+                category = "🚨 고위험"
+            elif danger_level >= 30:
+                border_color = "#FFD700"
+                category = "⚠️ 주의"
             else:
-                grouped_patterns['low'].append(pattern)
+                border_color = "#00E676"
+                category = "✅ 안전"
 
-        # 각 위험도 그룹별로 표시
-        severity_info = [
-            ('high', '🚨 고위험 항목', "#FF5252"),
-            ('medium', '⚠️ 주의 항목', "#FFD700"),
-            ('low', '✅ 안전 항목', "#00E676")
-        ]
-
-        for severity, title, border_color in severity_info:
-            patterns_by_severity = grouped_patterns[severity]
-            if not patterns_by_severity:
-                continue
-
+            # 결과 카드 표시
             st.markdown(f"""
-                <div style='background-color: #2D2D2D; padding: 15px; border-radius: 10px; margin: 15px 0;'>
-                    <h3 style='color: {border_color};'>{title} ({len(patterns_by_severity)}개)</h3>
+                <div style='background-color: #2D2D2D; padding: 15px; border-radius: 10px; margin: 15px 0; border-left: 5px solid {border_color};'>
+                    <h3 style='color: {border_color};'>{category} (위험도: {danger_level})</h3>
                 </div>
             """, unsafe_allow_html=True)
 
-            for pattern in patterns_by_severity:
-                match_percentage = int(pattern['match_score'] * 100)
+            # 기본 정보
+            cols = st.columns([2, 1])
+            with cols[0]:
+                st.markdown(f"<p style='color:#FFFFFF;'><strong>매칭 정확도:</strong> {match_percentage}%</p>", unsafe_allow_html=True)
+            with cols[1]:
+                if pattern.get('matched_keywords'):
+                    keywords = ', '.join(pattern['matched_keywords'])
+                    st.markdown(f"<p style='color:#FFFFFF;'><strong>매칭된 키워드:</strong> {keywords}</p>", unsafe_allow_html=True)
 
+            # 원본 텍스트 표시
+            if 'original_text' in pattern:
+                st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>입력된 텍스트:</div>", unsafe_allow_html=True)
+                highlighted_text = highlight_pattern_in_text(
+                    pattern['original_text'],
+                    pattern['pattern'],
+                    pattern.get('matched_keywords', [])
+                )
+                st.markdown(f"""
+                    <div style='white-space: pre-wrap; font-family: "Noto Sans KR", sans-serif; 
+                            background-color: #333333; padding: 10px; border-radius: 5px; 
+                            color: #FFFFFF; margin-bottom: 10px;'>
+                        {highlighted_text}
+                    </div>
+                """, unsafe_allow_html=True)
+
+            # 패턴 정보
+            st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>매칭된 패턴:</div>", unsafe_allow_html=True)
+            st.markdown(f"""
+                <div style='background-color: #333333; padding: 10px; border-radius: 5px; color: {border_color};'>
+                    {html.escape(str(pattern['pattern']))}
+                </div>
+            """, unsafe_allow_html=True)
+
+            # 분석 정보
+            if 'analysis' in pattern:
+                st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>분석:</div>", unsafe_allow_html=True)
+                st.markdown(f"""
+                    <div style='background-color: rgba{tuple(int(border_color[i:i+2], 16) for i in (1, 3, 5))}, 0.1); 
+                            padding: 10px; border-radius: 5px; color: #FFFFFF;'>
+                        {html.escape(str(pattern['analysis']))}
+                    </div>
+                """, unsafe_allow_html=True)
+
+            # 참고 자료
+            if pattern.get("url"):
                 with st.container():
-                    # 기본 정보 표시
-                    cols = st.columns([2, 1])
-                    with cols[0]:
-                        st.markdown(f"<p style='color:#FFFFFF;'><strong>위험도:</strong> <span style='color:{border_color}; font-weight:bold;'>{pattern['danger_level']}</span></p>", unsafe_allow_html=True)
-                    with cols[1]:
-                        st.markdown(f"<p style='color:#FFFFFF;'><strong>일치율:</strong> {match_percentage}%</p>", unsafe_allow_html=True)
-
-                    # 패턴 정보 표시
-                    st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>발견된 패턴:</div>", unsafe_allow_html=True)
-                    st.markdown(f"""
-                        <div style='background-color: #333333; padding: 10px; border-radius: 5px; color: #FFFFFF;'>
-                            {html.escape(str(pattern['pattern']))}
-                        </div>
-                    """, unsafe_allow_html=True)
-
-                    # 원본 텍스트 표시
-                    if 'text' in pattern:
-                        st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>원본 텍스트:</div>", unsafe_allow_html=True)
+                    if 'thumbnail' in pattern:
                         try:
-                            highlighted_text = highlight_pattern_in_text(pattern['text'], pattern['pattern'])
-                            st.markdown(f"""
-                                <div style='white-space: pre-wrap; font-family: "Noto Sans KR", sans-serif; 
-                                        background-color: #333333; padding: 10px; border-radius: 5px; 
-                                        color: #FFFFFF; margin-bottom: 10px;'>
-                                    {highlighted_text}
-                                </div>
-                            """, unsafe_allow_html=True)
+                            st.image(pattern['thumbnail'], width=200)
                         except:
-                            st.markdown(f"""
-                                <div style='background-color: #333333; padding: 10px; border-radius: 5px; color: #FFFFFF;'>
-                                    {html.escape(str(pattern['text']))}
-                                </div>
-                            """, unsafe_allow_html=True)
-
-                    # 분석 정보 표시
-                    st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>분석:</div>", unsafe_allow_html=True)
+                            pass
                     st.markdown(f"""
-                        <div style='background-color: rgba{tuple(int(border_color[i:i+2], 16) for i in (1, 3, 5))}, 0.1); 
-                                padding: 10px; border-radius: 5px; color: #FFFFFF;'>
-                            {html.escape(str(pattern.get('analysis', '')))}
-                        </div>
+                        <p><strong>🔗 <a href='{html.escape(pattern["url"])}' 
+                           target='_blank' style='color:{border_color};'>참고 자료</a></strong></p>
                     """, unsafe_allow_html=True)
 
-                    # 참고 자료 및 썸네일 표시
-                    if pattern.get("url"):
-                        with st.container():
-                            if 'thumbnail' in pattern:
-                                try:
-                                    st.image(pattern['thumbnail'], width=200)
-                                except:
-                                    pass
-                            st.markdown(f"""
-                                <p><strong>🔗 <a href='{html.escape(pattern["url"])}' 
-                                   target='_blank' style='color:{border_color};'>참고 자료</a></strong></p>
-                            """, unsafe_allow_html=True)
-
-                    st.markdown("<hr style='border: none; height: 1px; background-color: #555555; margin: 20px 0;'>", unsafe_allow_html=True)
+            st.markdown("<hr style='border: none; height: 1px; background-color: #555555; margin: 20px 0;'>", unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"결과 표시 중 오류 발생: {str(e)}")
