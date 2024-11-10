@@ -228,33 +228,58 @@ def get_or_create_checker_worksheet():
         return None
 
 class SheetBasedSpellChecker:
-    """구글 시트 기반 맞춤법 검사기"""
+    """구글 시트 기반 맞춤법 검사기 - 캐싱 최적화 버전"""
+    
+    _instance = None
+    _rules = None
+    _last_update = None
+    _update_interval = 300  # 5분마다 규칙 업데이트
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(SheetBasedSpellChecker, cls).__new__(cls)
+        return cls._instance
     
     def __init__(self):
-        self.rules = {}  # 초기화
-        self.load_rules()  # 규칙 로드
-        
+        # 초기화는 한 번만 수행
+        if self._rules is None:
+            self._rules = {}
+            self.load_rules()
+    
     def load_rules(self):
-        """구글 시트에서 규칙 로드"""
+        """구글 시트에서 규칙 로드 - 캐싱 적용"""
+        current_time = time.time()
+        
+        # 마지막 업데이트 후 지정된 시간이 지나지 않았다면 기존 규칙 사용
+        if (self._last_update and 
+            current_time - self._last_update < self._update_interval and 
+            self._rules):
+            return
+        
         try:
             checker_sheet = get_or_create_checker_worksheet()
             if not checker_sheet:
                 return
             
-            # 데이터 가져오기
+            # 데이터 한 번에 가져오기
             data = checker_sheet.get_all_values()
             
-            # 헤더 제외하고 규칙 딕셔너리 생성
-            if len(data) > 1:  # 헤더 행이 있는 경우
+            # 규칙 딕셔너리 생성
+            new_rules = {}
+            if len(data) > 1:  # 헤더 제외
                 for row in data[1:]:  # 첫 행(헤더) 제외
-                    if len(row) >= 2 and row[0] and row[1]:  # A열과 B열이 모두 존재하는 경우만
-                        self.rules[row[0].strip()] = row[1].strip()
+                    if len(row) >= 2 and row[0] and row[1]:
+                        new_rules[row[0].strip()] = row[1].strip()
+            
+            # 새 규칙으로 업데이트
+            self._rules = new_rules
+            self._last_update = current_time
             
         except Exception as e:
             st.error(f"규칙 로딩 중 오류 발생: {str(e)}")
 
     def check(self, text):
-        """텍스트 맞춤법 검사 - 정규식과 부분 문자열 매칭 지원"""
+        """텍스트 맞춤법 검사 - 캐시 활용"""
         if not text or text.isspace():
             return {
                 'original': text,
@@ -269,9 +294,9 @@ class SheetBasedSpellChecker:
             
             # 단어 단위로 분리
             words = re.findall(r'\b\w+\b', text)
-            processed_corrections = set()  # 중복 교정 방지용
+            processed_corrections = set()  # 중복 교정 방지
             
-            for wrong, right in self.rules.items():
+            for wrong, right in self._rules.items():
                 try:
                     # 정규식 패턴인지 확인
                     if wrong.startswith('^') and wrong.endswith('$'):
@@ -295,7 +320,7 @@ class SheetBasedSpellChecker:
                                         'replacement': right
                                     })
                     else:
-                        # 일반 문자열 매칭 - 부분 문자열 포함 검사
+                        # 일반 문자열 매칭
                         for word in words:
                             if wrong in word:
                                 corrected_word = word.replace(wrong, right)
@@ -345,107 +370,15 @@ class SheetBasedSpellChecker:
                 'error': str(e)
             }
 
-    def add_rule(self, wrong, right):
-        """새로운 맞춤법 규칙 추가"""
-        try:
-            checker_sheet = get_or_create_checker_worksheet()
-            if checker_sheet:
-                checker_sheet.append_row([wrong.strip(), right.strip()])
-                self.rules[wrong.strip()] = right.strip()
-                return True
-        except Exception as e:
-            st.error(f"규칙 추가 중 오류 발생: {str(e)}")
-        return False
-
     def get_rules(self):
         """현재 등록된 모든 규칙 반환"""
-        return self.rules
+        return self._rules.copy()
 
-def check_with_regex(self, text):
-    """텍스트 맞춤법 검사 - 정규식과 부분 문자열 매칭 지원"""
-    if not text or text.isspace():
-        return {
-            'original': text,
-            'corrected': text,
-            'corrections': [],
-            'error': None
-        }
-        
-    try:
-        corrections = []
-        corrected_text = text
-        
-        for wrong, right in self.rules.items():
-            try:
-                # 정규식 패턴인지 확인
-                if wrong.startswith('^') and wrong.endswith('$'):
-                    # 정규식 패턴 적용
-                    pattern = re.compile(wrong)
-                    matches = pattern.finditer(text)
-                    
-                    for match in matches:
-                        matched_text = match.group(0)
-                        # 정규식 그룹 참조 처리
-                        corrected_word = re.sub(wrong, right, matched_text)
-                        
-                        if matched_text != corrected_word:
-                            corrected_text = corrected_text.replace(matched_text, corrected_word)
-                            corrections.append({
-                                'original': matched_text,
-                                'corrected': corrected_word,
-                                'type': '맞춤법/표현 오류 (정규식)',
-                                'pattern': wrong,
-                                'replacement': right
-                            })
-                else:
-                    # 일반 문자열 매칭
-                    words = re.findall(r'\b\w+\b', text)
-                    for word in words:
-                        if wrong in word:
-                            corrected_word = word.replace(wrong, right)
-                            corrected_text = corrected_text.replace(word, corrected_word)
-                            corrections.append({
-                                'original': word,
-                                'corrected': corrected_word,
-                                'type': '맞춤법/표현 오류',
-                                'pattern': wrong,
-                                'replacement': right
-                            })
-            except re.error:
-                # 잘못된 정규식 패턴은 일반 문자열로 처리
-                if wrong in text:
-                    corrected_text = corrected_text.replace(wrong, right)
-                    corrections.append({
-                        'original': wrong,
-                        'corrected': right,
-                        'type': '맞춤법/표현 오류',
-                        'pattern': wrong,
-                        'replacement': right
-                    })
-        
-        # 중복 제거 및 정렬
-        unique_corrections = []
-        seen = set()
-        for corr in corrections:
-            key = (corr['original'], corr['corrected'])
-            if key not in seen:
-                seen.add(key)
-                unique_corrections.append(corr)
-        
-        return {
-            'original': text,
-            'corrected': corrected_text,
-            'corrections': unique_corrections,
-            'error': None
-        }
-        
-    except Exception as e:
-        return {
-            'original': text,
-            'corrected': text,
-            'corrections': [],
-            'error': str(e)
-        }
+    @classmethod
+    def clear_cache(cls):
+        """캐시 초기화"""
+        cls._rules = None
+        cls._last_update = None
 
 
 def display_spelling_analysis(spelling_result):
