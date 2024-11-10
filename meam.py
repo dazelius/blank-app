@@ -228,47 +228,143 @@ class SheetBasedSpellChecker:
             st.error(f"규칙 로딩 중 오류 발생: {str(e)}")
             return {}
     
-    def check(self, text):
-        """텍스트 맞춤법 검사"""
-        if not text or text.isspace():
-            return {
-                'original': text,
-                'corrected': text,
-                'corrections': [],
-                'error': None
-            }
+def check(self, text):
+    """텍스트 맞춤법 검사 - 부분 문자열 매칭 포함"""
+    if not text or text.isspace():
+        return {
+            'original': text,
+            'corrected': text,
+            'corrections': [],
+            'error': None
+        }
+        
+    try:
+        corrections = []
+        corrected_text = text
+        
+        # 규칙 적용 - 부분 문자열 매칭 사용
+        for wrong, right in self.rules.items():
+            # 전체 단어를 기준으로 분리
+            words = re.findall(r'\b\w+\b', text)
             
-        try:
-            corrections = []
-            corrected_text = text
-            
-            # 규칙 적용
-            for wrong, right in self.rules.items():
+            for word in words:
+                # 잘못된 표현이 단어에 포함되어 있는지 확인
+                if wrong in word:
+                    # 교정된 단어 생성
+                    corrected_word = word.replace(wrong, right)
+                    
+                    # 원본 텍스트에서 해당 단어 교체
+                    corrected_text = corrected_text.replace(word, corrected_word)
+                    
+                    corrections.append({
+                        'original': word,
+                        'corrected': corrected_word,
+                        'type': '맞춤법/표현 오류',
+                        'pattern': wrong,
+                        'replacement': right
+                    })
+        
+        return {
+            'original': text,
+            'corrected': corrected_text,
+            'corrections': corrections,
+            'error': None
+        }
+        
+    except Exception as e:
+        return {
+            'original': text,
+            'corrected': text,
+            'corrections': [],
+            'error': str(e)
+        }
+
+def check_with_regex(self, text):
+    """텍스트 맞춤법 검사 - 정규식과 부분 문자열 매칭 지원"""
+    if not text or text.isspace():
+        return {
+            'original': text,
+            'corrected': text,
+            'corrections': [],
+            'error': None
+        }
+        
+    try:
+        corrections = []
+        corrected_text = text
+        
+        for wrong, right in self.rules.items():
+            try:
+                # 정규식 패턴인지 확인
+                if wrong.startswith('^') and wrong.endswith('$'):
+                    # 정규식 패턴 적용
+                    pattern = re.compile(wrong)
+                    matches = pattern.finditer(text)
+                    
+                    for match in matches:
+                        matched_text = match.group(0)
+                        # 정규식 그룹 참조 처리
+                        corrected_word = re.sub(wrong, right, matched_text)
+                        
+                        if matched_text != corrected_word:
+                            corrected_text = corrected_text.replace(matched_text, corrected_word)
+                            corrections.append({
+                                'original': matched_text,
+                                'corrected': corrected_word,
+                                'type': '맞춤법/표현 오류 (정규식)',
+                                'pattern': wrong,
+                                'replacement': right
+                            })
+                else:
+                    # 일반 문자열 매칭
+                    words = re.findall(r'\b\w+\b', text)
+                    for word in words:
+                        if wrong in word:
+                            corrected_word = word.replace(wrong, right)
+                            corrected_text = corrected_text.replace(word, corrected_word)
+                            corrections.append({
+                                'original': word,
+                                'corrected': corrected_word,
+                                'type': '맞춤법/표현 오류',
+                                'pattern': wrong,
+                                'replacement': right
+                            })
+            except re.error:
+                # 잘못된 정규식 패턴은 일반 문자열로 처리
                 if wrong in text:
-                    # 전체 단어 매칭을 위한 정규식 패턴
-                    pattern = r'\b' + re.escape(wrong) + r'\b'
-                    if re.search(pattern, text):
-                        corrected_text = re.sub(pattern, right, corrected_text)
-                        corrections.append({
-                            'original': wrong,
-                            'corrected': right,
-                            'type': '맞춤법/표현 오류'
-                        })
-            
-            return {
-                'original': text,
-                'corrected': corrected_text,
-                'corrections': corrections,
-                'error': None
-            }
-            
-        except Exception as e:
-            return {
-                'original': text,
-                'corrected': text,
-                'corrections': [],
-                'error': str(e)
-            }
+                    corrected_text = corrected_text.replace(wrong, right)
+                    corrections.append({
+                        'original': wrong,
+                        'corrected': right,
+                        'type': '맞춤법/표현 오류',
+                        'pattern': wrong,
+                        'replacement': right
+                    })
+        
+        # 중복 제거 및 정렬
+        unique_corrections = []
+        seen = set()
+        for corr in corrections:
+            key = (corr['original'], corr['corrected'])
+            if key not in seen:
+                seen.add(key)
+                unique_corrections.append(corr)
+        
+        return {
+            'original': text,
+            'corrected': corrected_text,
+            'corrections': unique_corrections,
+            'error': None
+        }
+        
+    except Exception as e:
+        return {
+            'original': text,
+            'corrected': text,
+            'corrections': [],
+            'error': str(e)
+        }
+
 
 def display_spelling_analysis(spelling_result):
     """맞춤법 분석 결과 표시"""
