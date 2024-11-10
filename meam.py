@@ -1453,14 +1453,6 @@ def display_analysis_results(patterns, total_score):
                     </div>
                 """, unsafe_allow_html=True)
 
-            # 패턴 정보
-            st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>매칭된 패턴:</div>", unsafe_allow_html=True)
-            st.markdown(f"""
-                <div style='background-color: #333333; padding: 10px; border-radius: 5px; color: {border_color};'>
-                    {html.escape(str(pattern['pattern']))}
-                </div>
-            """, unsafe_allow_html=True)
-
             # 분석 정보
             if 'analysis' in pattern:
                 st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>분석:</div>", unsafe_allow_html=True)
