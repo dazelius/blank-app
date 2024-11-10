@@ -322,6 +322,149 @@ def display_spelling_check(result):
     else:
         st.success("✅ 맞춤법 오류가 발견되지 않았습니다.")
 
+def add_spell_check_patterns():
+    """맞춤법 패턴을 Google Sheets에 추가하는 함수"""
+    try:
+        # Google Sheets 인스턴스 가져오기
+        credentials = {
+            "type": "service_account",
+            "project_id": st.secrets["gcp_service_account"]["project_id"],
+            "private_key_id": st.secrets["gcp_service_account"]["private_key_id"],
+            "private_key": st.secrets["gcp_service_account"]["private_key"],
+            "client_email": st.secrets["gcp_service_account"]["client_email"],
+            "client_id": st.secrets["gcp_service_account"]["client_id"],
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_x509_cert_url": st.secrets["gcp_service_account"]["client_x509_cert_url"],
+            "universe_domain": "googleapis.com"
+        }
+        
+        SCOPES = [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive'
+        ]
+        
+        creds = service_account.Credentials.from_service_account_info(
+            credentials, scopes=SCOPES)
+        client = gspread.authorize(creds)
+        
+        # 스프레드시트 열기
+        sheet = client.open_by_url('https://docs.google.com/spreadsheets/d/1wPchxwAssBf706VuvxhGp4ESt3vj-N9RLcMaUF075ug/edit?gid=137455637#gid=137455637')
+        
+        # Checker 워크시트 가져오기 (없으면 생성)
+        try:
+            worksheet = sheet.worksheet('Checker')
+        except gspread.WorksheetNotFound:
+            worksheet = sheet.add_worksheet('Checker', 1000, 2)
+
+        # 헤더 추가
+        worksheet.update('A1:B1', [['오류', '수정']])
+        
+        # 맞춤법 패턴 데이터
+        spell_patterns = [
+            # 받침 오류
+            ['됬', '됐'],
+            ['됫', '됐'],
+            ['했섰', '했었'],
+            
+            # 조사 오류
+            ['과를', '을'],
+            ['를를', '를'],
+            ['은를', '을'],
+            ['는를', '를'],
+            ['이를', '를'],
+            ['이을', '을'],
+            
+            # 연결어미 오류
+            ['하겟', '하겠'],
+            ['하겟습', '하겠습'],
+            ['하겟어', '하겠어'],
+            ['되겟', '되겠'],
+            
+            # 접속 부사 오류
+            ['그리구', '그리고'],
+            ['그런데두', '그런데도'],
+            ['하구', '하고'],
+            ['그래두', '그래도'],
+            
+            # 준말 오류
+            ['건데', '것은데'],
+            ['걸로', '것으로'],
+            ['거에요', '것이에요'],
+            
+            # 띄어쓰기 오류
+            ['안되', '안 되'],
+            ['못하', '못 하'],
+            ['할수있', '할 수 있'],
+            ['될수있', '될 수 있'],
+            ['해주', '해 주'],
+            ['알수있', '알 수 있'],
+            
+            # 자주 나타나는 오타
+            ['더럽힌', '더럽힌'],
+            ['는거', '는 것'],
+            ['수있', '수 있'],
+            ['것같아', '것 같아'],
+            ['던데', '던데'],
+            ['때문', ' 때문'],
+            
+            # 부사 활용
+            ['열심이', '열심히'],
+            ['같이서', '같이'],
+            ['많이서', '많이'],
+            
+            # 준말
+            ['글구', '그리고'],
+            ['글케', '그렇게'],
+            ['이케', '이렇게'],
+            ['요케', '이렇게'],
+            
+            # 기타 일반적인 오류
+            ['밭게', '받게'],
+            ['되여', '되어'],
+            ['되요', '돼요'],
+            ['됍니다', '됩니다'],
+            ['퐈이팅', '파이팅'],
+            ['화이팅', '파이팅'],
+            ['할려고', '하려고'],
+            ['되면서', '돼면서'],
+            ['됄', '될'],
+            ['됬다', '됐다']
+        ]
+        
+        # 데이터 추가 (헤더 다음 행부터)
+        worksheet.update('A2:B'+str(len(spell_patterns)+1), spell_patterns)
+        
+        # 셀 서식 지정
+        worksheet.format('A1:B1', {
+            "backgroundColor": {
+                "red": 0.2,
+                "green": 0.2,
+                "blue": 0.2
+            },
+            "textFormat": {
+                "foregroundColor": {
+                    "red": 1.0,
+                    "green": 1.0,
+                    "blue": 1.0
+                },
+                "bold": True
+            }
+        })
+        
+        return True, "맞춤법 패턴이 성공적으로 추가되었습니다."
+        
+    except Exception as e:
+        return False, f"오류 발생: {str(e)}"
+
+# 함수 실행
+success, message = add_spell_check_patterns()
+if success:
+    print(message)
+else:
+    print(message)
+
 
 # 1. 데이터 전처리 최적화
 @st.cache_data(ttl=3600)
