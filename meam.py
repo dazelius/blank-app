@@ -1379,7 +1379,7 @@ def analyze_file_contents(file_content, data):
     return None
 
 def display_file_analysis_results(analysis_results):
-    """파일 분석 결과 표시 - 개선된 버전"""
+    """파일 분석 결과 표시 - 맞춤법 검사 포함"""
     try:
         if not analysis_results or not analysis_results['results']:
             filename = analysis_results.get('filename', '알 수 없는 파일') if analysis_results else '알 수 없는 파일'
@@ -1452,15 +1452,13 @@ def display_file_analysis_results(analysis_results):
                 """, unsafe_allow_html=True)
 
                 for result in results_by_severity:
-                    match_percentage = int(result['match_score'] * 100)
-
                     with st.container():
                         # 위험도, 일치율, 컬럼 정보 표시
                         cols = st.columns([2, 1, 1])
                         with cols[0]:
                             st.markdown(f"<p style='color:#FFFFFF;'><strong>위험도:</strong> <span style='color:{border_color}; font-weight:bold;'>{result['danger_level']}</span></p>", unsafe_allow_html=True)
                         with cols[1]:
-                            st.markdown(f"<p style='color:#FFFFFF;'><strong>일치율:</strong> {match_percentage}%</p>", unsafe_allow_html=True)
+                            st.markdown(f"<p style='color:#FFFFFF;'><strong>일치율:</strong> {int(result['match_score'] * 100)}%</p>", unsafe_allow_html=True)
                         with cols[2]:
                             st.markdown(f"<p style='color:#FFFFFF;'><strong>컬럼:</strong> {html.escape(result['column'])}</p>", unsafe_allow_html=True)
 
@@ -1471,6 +1469,39 @@ def display_file_analysis_results(analysis_results):
                             st.markdown(f"<div style='white-space: pre-wrap; font-family: \"Noto Sans KR\", sans-serif; background-color: #333333; padding: 10px; border-radius: 5px; color: #FFFFFF;'>{highlighted_text}</div>", unsafe_allow_html=True)
                         except:
                             st.markdown(f"<div style='white-space: pre-wrap; font-family: \"Noto Sans KR\", sans-serif; background-color: #333333; padding: 10px; border-radius: 5px; color: #FFFFFF;'>{html.escape(result['text'])}</div>", unsafe_allow_html=True)
+
+                        # 맞춤법 검사 결과 표시
+                        if 'spelling_check' in result:
+                            st.markdown("""
+                                <div style='font-weight:bold; margin-top: 15px; color: #FFFFFF;'>
+                                    📝 맞춤법 검사 결과:
+                                </div>
+                            """, unsafe_allow_html=True)
+                            
+                            spelling_result = result['spelling_check']
+                            if spelling_result['errors'] > 0:
+                                corrections_display = ""
+                                for wrong, right, count in spelling_result.get('corrections', []):
+                                    corrections_display += f"""
+                                        <div style='background-color: #333333; padding: 8px; border-radius: 5px; margin: 5px 0;'>
+                                            <span style='color: #FF5252;'>{wrong}</span> ➜ 
+                                            <span style='color: #00E676;'>{right}</span>
+                                            <span style='color: #888888;'>({count}회 발견)</span>
+                                        </div>
+                                    """
+                                
+                                st.markdown(f"""
+                                    <div style='background-color: #2D2D2D; padding: 10px; border-radius: 5px; margin: 5px 0;'>
+                                        <p>🔍 발견된 맞춤법 오류: {spelling_result['errors']}개</p>
+                                        {corrections_display}
+                                        <div style='margin-top: 10px;'>
+                                            <p>✨ 교정된 텍스트:</p>
+                                            <div style='background-color: #333333; padding: 10px; border-radius: 5px; color: #00E676;'>
+                                                {spelling_result['checked']}
+                                            </div>
+                                        </div>
+                                    </div>
+                                """, unsafe_allow_html=True)
 
                         # 매칭된 패턴 섹션
                         st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>매칭된 패턴:</div>", unsafe_allow_html=True)
