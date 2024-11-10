@@ -178,6 +178,151 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+def check_spelling(text):
+    """자체 구현 맞춤법 검사 함수"""
+    try:
+        # 자주 발생하는 맞춤법 오류 사전
+        corrections = {
+            # 받침 오류
+            '됬': '됐',
+            '됫': '됐',
+            '했섰': '했었',
+            
+            # 조사 오류
+            '과를': '을',
+            '를를': '를',
+            '은를': '을',
+            '는를': '를',
+            '이를': '를',
+            '이을': '을',
+            
+            # 연결어미 오류
+            '하겟': '하겠',
+            '하겟습': '하겠습',
+            '하겟어': '하겠어',
+            '되겟': '되겠',
+            
+            # 접속 부사 오류
+            '그리구': '그리고',
+            '그런데두': '그런데도',
+            '하구': '하고',
+            '그래두': '그래도',
+            
+            # 준말 오류
+            '건데': '것은데',
+            '걸로': '것으로',
+            '거에요': '것이에요',
+            
+            # 띄어쓰기 오류
+            '안되': '안 되',
+            '못하': '못 하',
+            '할수있': '할 수 있',
+            '될수있': '될 수 있',
+            '해주': '해 주',
+            '알수있': '알 수 있',
+            
+            # 자주 나타나는 오타
+            '더럽힌': '더럽힌',
+            '는거': '는 것',
+            '수있': '수 있',
+            '것같아': '것 같아',
+            '던데': '던데',
+            '때문': ' 때문',
+            
+            # 부사 활용
+            '열심이': '열심히',
+            '같이서': '같이',
+            '많이서': '많이',
+            
+            # 준말
+            '글구': '그리고',
+            '글케': '그렇게',
+            '이케': '이렇게',
+            '요케': '이렇게',
+            
+            # 기타 일반적인 오류
+            '밭게': '받게',
+            '되여': '되어',
+            '되요': '돼요',
+            '됍니다': '됩니다',
+            '퐈이팅': '파이팅',
+            '화이팅': '파이팅',
+            '할려고': '하려고',
+            '되면서': '돼면서',
+            '됄': '될',
+            '됬다': '됐다'
+        }
+        
+        # 초기 텍스트
+        corrected_text = text
+        error_count = 0
+        corrections_made = []
+        
+        # 각 교정 규칙 적용
+        for wrong, right in corrections.items():
+            if wrong in corrected_text:
+                count = corrected_text.count(wrong)
+                if count > 0:
+                    error_count += count
+                    corrections_made.append((wrong, right, count))
+                corrected_text = corrected_text.replace(wrong, right)
+        
+        return {
+            'checked': corrected_text,
+            'errors': error_count,
+            'corrections': corrections_made,
+            'original': text
+        }
+        
+    except Exception as e:
+        st.error(f"맞춤법 검사 중 오류 발생: {str(e)}")
+        return None
+
+def display_spelling_check(result):
+    """맞춤법 검사 결과 표시 - 개선된 버전"""
+    if not result:
+        return
+        
+    st.markdown("""
+        <div style='background-color: #2D2D2D; padding: 15px; border-radius: 10px; margin: 15px 0;'>
+            <h4 style='color: #E0E0E0; margin-bottom: 10px;'>📝 맞춤법 검사 결과</h4>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    if result['errors'] > 0:
+        st.markdown(f"""
+            <div style='margin: 10px 0;'>
+                <p>🔍 발견된 맞춤법 오류: {result['errors']}개</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        # 수정 내역 표시
+        st.markdown("<h5>수정 내역:</h5>", unsafe_allow_html=True)
+        for wrong, right, count in result['corrections']:
+            st.markdown(f"""
+                <div style='background-color: #333333; padding: 8px; border-radius: 5px; margin: 5px 0;'>
+                    <span style='color: #FF5252;'>{wrong}</span> ➜ 
+                    <span style='color: #00E676;'>{right}</span>
+                    <span style='color: #888888;'>({count}회 발견)</span>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        # 교정된 텍스트 표시
+        st.markdown("""
+            <div style='margin-top: 15px;'>
+                <h5>교정된 텍스트:</h5>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown(f"""
+            <div style='background-color: #333333; padding: 10px; border-radius: 5px; color: #00E676;'>
+                {result['checked']}
+            </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.success("✅ 맞춤법 오류가 발견되지 않았습니다.")
+
+
 # 1. 데이터 전처리 최적화
 @st.cache_data(ttl=3600)
 def preprocess_patterns(data):
@@ -1334,7 +1479,7 @@ def main():
             return
             
         # 탭 생성
-        tab1, tab2 = st.tabs(["🔍 문장 분석", "✏️ 패턴 등록"])
+        tab1, tab2, tab3 = st.tabs(["🔍 문장 분석", "✏️ 패턴 등록", "📝 맞춤법 검사"])
 
         with tab1:
             analysis_type = st.radio(
@@ -1355,9 +1500,11 @@ def main():
                     st.write("")
                     st.write("")
                     analyze_button = st.button("🔍 위험도 분석", use_container_width=True, key="analyze")
+                    spell_check = st.checkbox("맞춤법 검사 포함", value=True)
                 
                 if analyze_button and input_text:
                     with st.spinner('🔄 문장을 분석하고 있습니다...'):
+                        # 위험도 분석
                         found_patterns = find_matching_patterns(input_text, data)
                         if found_patterns:
                             total_score = calculate_danger_score(found_patterns)
@@ -1365,6 +1512,13 @@ def main():
                             display_analysis_results(found_patterns, total_score)
                         else:
                             st.info("👀 특별한 위험 패턴이 발견되지 않았습니다.")
+                        
+                        # 맞춤법 검사
+                        if spell_check:
+                            with st.spinner('🔄 맞춤법 검사 중...'):
+                                spelling_result = check_spelling(input_text)
+                                if spelling_result:
+                                    display_spelling_check(spelling_result)
             
             else:  # 파일/폴더 업로드
                 st.markdown("""
@@ -1376,13 +1530,16 @@ def main():
                     </div>
                 """, unsafe_allow_html=True)
                 
-                # 다중 파일 업로드 지원
                 uploaded_files = st.file_uploader(
                     "파일 또는 ZIP 폴더 업로드", 
                     type=['csv', 'xlsx', 'xls', 'zip'],
                     accept_multiple_files=True,
                     help="여러 파일을 한 번에 선택하거나, ZIP 파일로 압축하여 업로드하세요."
                 )
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    spell_check_files = st.checkbox("맞춤법 검사 포함", value=True)
                 
                 if uploaded_files:
                     if st.button("📂 파일 분석", use_container_width=True):
@@ -1401,7 +1558,15 @@ def main():
                             
                             with st.spinner(f'🔄 {file.name} 분석 중...'):
                                 analysis_result = analyze_file_contents(file, data)
+                                
                                 if analysis_result and analysis_result['total_patterns'] > 0:
+                                    # 맞춤법 검사 추가
+                                    if spell_check_files:
+                                        for result in analysis_result['results']:
+                                            spelling_result = check_spelling(result['text'])
+                                            if spelling_result and spelling_result['errors'] > 0:
+                                                result['spelling_check'] = spelling_result
+                                    
                                     all_results.extend(analysis_result['results'])
                                     total_patterns += analysis_result['total_patterns']
                         
@@ -1411,12 +1576,11 @@ def main():
                         if total_patterns > 0:
                             st.success(f"🎯 분석이 완료되었습니다! 총 {total_patterns}개의 패턴이 발견되었습니다.")
                             
-                            # 전체 결과를 분석 결과 형식으로 변환
                             combined_results = {
                                 'total_patterns': total_patterns,
                                 'results': sorted(all_results, 
                                                key=lambda x: (x['danger_level'], x['match_score']), 
-                                               reverse=True)[:1000]  # 상위 1000개만 표시
+                                               reverse=True)[:1000]
                             }
                             display_file_analysis_results(combined_results)
                         else:
@@ -1454,9 +1618,7 @@ def main():
                             ])
                             st.success("✅ 패턴이 등록되었습니다!")
                             st.balloons()
-                            # 캐시 갱신
                             st.cache_data.clear()
-                            # 페이지 새로고침
                             st.rerun()
                         else:
                             st.error("시트에 연결할 수 없습니다.")
@@ -1472,11 +1634,9 @@ def main():
             </div>
             """, unsafe_allow_html=True)
             
-            # 데이터프레임 생성 및 표시
             if data:
                 df = pd.DataFrame(data)
                 
-                # 컬럼명 변경
                 column_mapping = {
                     'text': '패턴',
                     'output': '분석',
@@ -1485,19 +1645,16 @@ def main():
                     'timestamp': '등록일시'
                 }
                 
-                # 존재하는 컬럼만 이름 변경
                 for old_col, new_col in column_mapping.items():
                     if old_col in df.columns:
                         df = df.rename(columns={old_col: new_col})
                 
-                # 검색/필터링 기능
                 search_term = st.text_input("🔍 패턴 검색:", placeholder="검색어를 입력하세요...")
                 if search_term:
                     pattern_mask = df['패턴'].astype(str).str.contains(search_term, case=False, na=False)
                     analysis_mask = df['분석'].astype(str).str.contains(search_term, case=False, na=False)
                     df = df[pattern_mask | analysis_mask]
                 
-                # 위험도 필터링
                 if '위험도' in df.columns:
                     col1, col2 = st.columns(2)
                     with col1:
@@ -1508,7 +1665,6 @@ def main():
                     df['위험도'] = pd.to_numeric(df['위험도'], errors='coerce')
                     df = df[(df['위험도'] >= min_danger) & (df['위험도'] <= max_danger)]
                 
-                # 테이블 표시
                 st.dataframe(
                     df,
                     use_container_width=True,
@@ -1516,7 +1672,6 @@ def main():
                     height=400
                 )
                 
-                # 통계 정보 표시
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("총 패턴 수", len(df))
@@ -1527,6 +1682,29 @@ def main():
                         st.metric("고위험 패턴 수", len(df[df['위험도'] >= 70]))
             else:
                 st.info("등록된 패턴이 없습니다.")
+
+        with tab3:
+            st.markdown("""
+                <div style='background-color: #2D2D2D; padding: 1rem; border-radius: 10px; margin-bottom: 1rem;'>
+                    <h4>📝 맞춤법 검사</h4>
+                    <p style='color: #E0E0E0;'>텍스트의 맞춤법을 검사합니다.</p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            spell_text = st.text_area(
+                "검사할 텍스트를 입력하세요:",
+                placeholder="맞춤법을 검사할 텍스트를 입력해주세요...",
+                height=150
+            )
+            
+            if st.button("✨ 맞춤법 검사", use_container_width=True):
+                if spell_text:
+                    with st.spinner('🔄 맞춤법을 검사하고 있습니다...'):
+                        spelling_result = check_spelling(spell_text)
+                        if spelling_result:
+                            display_spelling_check(spelling_result)
+                else:
+                    st.warning("⚠️ 검사할 텍스트를 입력해주세요!")
                 
     except Exception as e:
         st.error(f"애플리케이션 실행 중 오류가 발생했습니다: {str(e)}")
@@ -1535,3 +1713,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
