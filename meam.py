@@ -1693,52 +1693,52 @@ def main():
                 with col1:
                     spell_check_files = st.checkbox("맞춤법 검사 포함", value=True)
                 
-                    if uploaded_files:
-                        if st.button("📂 파일 분석", use_container_width=True):
-                            all_results = []
-                            total_patterns = 0
+                if uploaded_files:
+                    if st.button("📂 파일 분석", use_container_width=True):
+                        all_results = []
+                        total_patterns = 0
+                        
+                        # 프로그레스 바와 텍스트 생성
+                        progress_text = st.empty()
+                        progress_bar = st.progress(0)
+                        
+                        try:
+                            # 각 파일 처리
+                            for idx, file in enumerate(uploaded_files):
+                                with st.spinner(f'🔄 {file.name} 분석 중...'):
+                                    analysis_result = analyze_file_contents(
+                                        file, 
+                                        data,
+                                        spell_check_enabled=spell_check_files,
+                                        progress_bar=progress_bar,
+                                        progress_text=progress_text
+                                    )
+                                    
+                                    if analysis_result and analysis_result['total_patterns'] > 0:
+                                        all_results.extend(analysis_result['results'])
+                                        total_patterns += analysis_result['total_patterns']
                             
-                            # 프로그레스 바와 텍스트 생성
-                            progress_text = st.empty()
-                            progress_bar = st.progress(0)
-                            
-                            try:
-                                # 각 파일 처리
-                                for idx, file in enumerate(uploaded_files):
-                                    with st.spinner(f'🔄 {file.name} 분석 중...'):
-                                        analysis_result = analyze_file_contents(
-                                            file, 
-                                            data,
-                                            spell_check_enabled=spell_check_files,
-                                            progress_bar=progress_bar,
-                                            progress_text=progress_text
-                                        )
-                                        
-                                        if analysis_result and analysis_result['total_patterns'] > 0:
-                                            all_results.extend(analysis_result['results'])
-                                            total_patterns += analysis_result['total_patterns']
+                            # 분석 결과 표시
+                            if total_patterns > 0:
+                                st.success(f"🎯 분석이 완료되었습니다! 총 {total_patterns}개의 패턴이 발견되었습니다.")
                                 
-                                # 분석 결과 표시
-                                if total_patterns > 0:
-                                    st.success(f"🎯 분석이 완료되었습니다! 총 {total_patterns}개의 패턴이 발견되었습니다.")
-                                    
-                                    combined_results = {
-                                        'total_patterns': total_patterns,
-                                        'results': sorted(all_results, 
-                                                    key=lambda x: (x['danger_level'], x['match_score']), 
-                                                    reverse=True)[:1000]
-                                    }
-                                    display_file_analysis_results(combined_results)
-                                else:
-                                    st.info("👀 파일에서 위험 패턴이 발견되지 않았습니다.")
-                                    
-                            except Exception as e:
-                                st.error(f"파일 분석 중 오류가 발생했습니다: {str(e)}")
-                                st.error("상세 오류:", exception=True)
-                            finally:
-                                # 프로그레스 바와 텍스트 제거
-                                progress_bar.empty()
-                                progress_text.empty()
+                                combined_results = {
+                                    'total_patterns': total_patterns,
+                                    'results': sorted(all_results, 
+                                                key=lambda x: (x['danger_level'], x['match_score']), 
+                                                reverse=True)[:1000]
+                                }
+                                display_file_analysis_results(combined_results)
+                            else:
+                                st.info("👀 파일에서 위험 패턴이 발견되지 않았습니다.")
+                                
+                        except Exception as e:
+                            st.error(f"파일 분석 중 오류가 발생했습니다: {str(e)}")
+                            st.error("상세 오류:", exception=True)
+                        finally:
+                            # 프로그레스 바와 텍스트 제거
+                            progress_bar.empty()
+                            progress_text.empty()
                         
                         if total_patterns > 0:
                             st.success(f"🎯 분석이 완료되었습니다! 총 {total_patterns}개의 패턴이 발견되었습니다.")
