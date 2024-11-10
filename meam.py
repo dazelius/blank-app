@@ -926,19 +926,37 @@ import streamlit as st
 import html
 
 def analyze_file_contents(file_content, data):
-    """파일 내용 분석 - 맞춤법 검사 추가"""
+    """파일 내용 분석 - 고성능 최적화 버전"""
     if file_content is not None:
         try:
-            # 파일 로드 및 데이터프레임 처리
+            # 패턴 데이터 전처리 및 인덱싱 (캐싱)
+            pattern_index = {}
+            for pattern in data:
+                if not isinstance(pattern, dict) or 'text' not in pattern:
+                    continue
+                pattern_text = str(pattern['text']).lower()
+                words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text).split())
+                for word in words:
+                    if len(word) >= 2:  # 2글자 이상 단어만 인덱싱
+                        if word not in pattern_index:
+                            pattern_index[word] = []
+                        pattern_index[word].append(pattern)
+
+            # 파일 배치 처리를 위한 설정
+            BATCH_SIZE = 5000
+            chunk_size = max(1000, min(BATCH_SIZE, file_content.tell() // 100))  # 파일 크기에 따른 동적 청크 크기
+
             dfs = []
             filename = getattr(file_content, 'name', '알 수 없는 파일')
             
+            # 파일 타입별 최적화된 로딩
             if hasattr(file_content, 'name'):
                 file_type = file_content.name.split('.')[-1].lower()
                 if file_type == 'csv':
-                    df = pd.read_csv(file_content, dtype=str)
-                    df['source_file'] = file_content.name
-                    dfs.append(df)
+                    # CSV 파일 청크 단위 처리
+                    for chunk in pd.read_csv(file_content, dtype=str, chunksize=chunk_size):
+                        chunk['source_file'] = file_content.name
+                        dfs.append(chunk)
                 elif file_type in ['xlsx', 'xls']:
                     df = pd.read_excel(file_content, dtype=str)
                     df['source_file'] = file_content.name
@@ -949,56 +967,120 @@ def analyze_file_contents(file_content, data):
                             if zip_filename.endswith(('.csv', '.xlsx', '.xls')):
                                 with z.open(zip_filename) as f:
                                     if zip_filename.endswith('.csv'):
-                                        df = pd.read_csv(io.BytesIO(f.read()), dtype=str)
+                                        for chunk in pd.read_csv(io.BytesIO(f.read()), dtype=str, chunksize=chunk_size):
+                                            chunk['source_file'] = zip_filename
+                                            dfs.append(chunk)
                                     else:
                                         df = pd.read_excel(io.BytesIO(f.read()), dtype=str)
-                                    df['source_file'] = zip_filename
-                                    dfs.append(df)
+                                        df['source_file'] = zip_filename
+                                        dfs.append(df)
 
             if not dfs:
                 return None
-                
-            # 모든 데이터프레임 병합
-            df = pd.concat(dfs, ignore_index=True)
+
+            # 데이터프레임 병합 최적화
+            df = pd.concat(dfs, ignore_index=True, copy=False)
             
-            # 텍스트 컬럼 처리
+            # 메모리 최적화
+            del dfs
+            import gc
+            gc.collect()
+
+            # 텍스트 컬럼만 처리
             text_columns = df.select_dtypes(include=['object']).columns
+            text_columns = [col for col in text_columns if col != 'source_file']
+            
             all_results = []
+            total_rows = len(df)
             
-            # 맞춤법 검사기 초기화
+            # 맞춤법 검사기 초기화 (한 번만)
             checker = SheetBasedSpellChecker()
+
+            # 프로그레스 바 초기화
+            progress_bar = st.progress(0)
+            status_text = st.empty()
             
-            for col in text_columns:
-                if col == 'source_file':  # source_file 컬럼 제외
-                    continue
-                    
-                texts = df[col].dropna().tolist()
-                source_files = df.loc[df[col].notna(), 'source_file'].tolist()
+            processed_rows = 0
+            start_time = time.time()
+
+            # 배치 처리
+            for batch_start in range(0, total_rows, BATCH_SIZE):
+                batch_end = min(batch_start + BATCH_SIZE, total_rows)
+                batch_df = df.iloc[batch_start:batch_end]
                 
-                for text, source_file in zip(texts, source_files):
-                    # 패턴 매칭 분석
-                    patterns = find_matching_patterns([text], data)
-                    if patterns:
-                        for pattern in patterns:
-                            pattern['source_file'] = source_file
-                            pattern['column'] = col
-                            all_results.append(pattern)
+                batch_results = []
+                
+                for col in text_columns:
+                    texts = batch_df[col].dropna()
+                    source_files = batch_df.loc[texts.index, 'source_file']
                     
-                    # 맞춤법 검사
-                    spell_check_result = checker.check(text)
-                    if spell_check_result['corrections']:
-                        spell_result = {
-                            'text': text,
-                            'source_file': source_file,
-                            'column': col,
-                            'spelling_errors': [(c['original'], c['corrected']) for c in spell_check_result['corrections']],
-                            'corrected_text': spell_check_result['corrected'],
-                            'is_spell_check': True,
-                            'match_score': 1.0,  # 맞춤법 결과용 더미 스코어
-                            'danger_level': 0    # 맞춤법 결과용 더미 위험도
-                        }
-                        all_results.append(spell_result)
-            
+                    for text, source_file in zip(texts, source_files):
+                        if not isinstance(text, str):
+                            continue
+                            
+                        text_lower = text.lower()
+                        text_words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', text_lower).split())
+                        
+                        # 빠른 패턴 매칭
+                        matched_patterns = set()
+                        for word in text_words:
+                            if len(word) >= 2 and word in pattern_index:
+                                matched_patterns.update(pattern_index[word])
+                        
+                        # 상세 분석은 매칭된 패턴에 대해서만
+                        for pattern in matched_patterns:
+                            pattern_text = str(pattern['text']).lower()
+                            similarity = difflib.SequenceMatcher(None, text_lower, pattern_text).ratio()
+                            
+                            if similarity >= 0.7:  # 임계값
+                                result = {
+                                    'text': text,
+                                    'pattern': pattern['text'],
+                                    'analysis': pattern.get('output', ''),
+                                    'danger_level': int(pattern.get('dangerlevel', 0)),
+                                    'url': pattern.get('url', ''),
+                                    'match_score': similarity,
+                                    'source_file': source_file,
+                                    'column': col
+                                }
+                                batch_results.append(result)
+                        
+                        # 맞춤법 검사 (캐시 활용)
+                        spell_result = checker.check(text)
+                        if spell_result['corrections']:
+                            spell_check = {
+                                'text': text,
+                                'source_file': source_file,
+                                'column': col,
+                                'spelling_errors': [(c['original'], c['corrected']) 
+                                                  for c in spell_result['corrections']],
+                                'corrected_text': spell_result['corrected'],
+                                'is_spell_check': True,
+                                'match_score': 1.0,
+                                'danger_level': 0
+                            }
+                            batch_results.append(spell_check)
+                
+                all_results.extend(batch_results)
+                
+                # 진행률 업데이트
+                processed_rows += batch_end - batch_start
+                progress = processed_rows / total_rows
+                progress_bar.progress(progress)
+                
+                elapsed_time = time.time() - start_time
+                speed = processed_rows / elapsed_time if elapsed_time > 0 else 0
+                remaining_time = (total_rows - processed_rows) / speed if speed > 0 else 0
+                
+                status_text.text(f"""
+                    처리 중... {processed_rows:,}/{total_rows:,} 행
+                    처리 속도: {speed:.0f} 행/초
+                    예상 남은 시간: {remaining_time:.1f}초
+                """)
+
+            progress_bar.empty()
+            status_text.empty()
+
             if all_results:
                 return {
                     'total_patterns': len([r for r in all_results if not r.get('is_spell_check', False)]),
