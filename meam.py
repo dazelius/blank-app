@@ -1203,7 +1203,7 @@ def group_similar_patterns(pattern_results, similarity_threshold=0.9):
     return grouped_results
 
 def display_file_analysis_results(analysis_results):
-    """파일 분석 결과 표시 - 공백 최적화"""
+    """파일 분석 결과 표시 - 맞춤법 오류 처리 수정"""
     try:
         if not analysis_results or not analysis_results['results']:
             st.warning(f"🔍 분석 결과가 없습니다.")
@@ -1325,7 +1325,7 @@ def display_file_analysis_results(analysis_results):
             else:
                 st.info("위험 패턴이 발견되지 않았습니다.")
 
-        # 맞춤법 검사 결과 표시
+        # 맞춤법 검사 결과 표시 부분 수정
         with tab2:
             if spell_check_results:
                 for result in spell_check_results:
@@ -1339,15 +1339,27 @@ def display_file_analysis_results(analysis_results):
                         st.markdown("<div style='font-weight:bold;color:#FFFFFF;margin-top:10px'>수정문:</div>", unsafe_allow_html=True)
                         st.markdown(f"""<div style='background-color:#333333;padding:10px;border-radius:5px;color:#00E676'>{html.escape(str(result['corrected_text']))}</div>""", unsafe_allow_html=True)
                     
-                    if result['spelling_errors']:
+                    if result.get('spelling_errors'):
                         st.markdown("<div style='font-weight:bold;color:#FFFFFF;margin-top:10px'>맞춤법 오류 목록:</div>", unsafe_allow_html=True)
-                        for error, correction in result['spelling_errors']:
+                        
+                        # 맞춤법 오류 항목 처리 수정
+                        for correction in result['spelling_errors']:
+                            # correction 객체의 구조에 따라 처리
+                            if isinstance(correction, dict):
+                                original = correction.get('original', '')
+                                corrected = correction.get('corrected', '')
+                            elif isinstance(correction, (list, tuple)) and len(correction) == 2:
+                                original, corrected = correction
+                            else:
+                                continue  # 알 수 없는 형식은 건너뛰기
+                                
                             st.markdown(f"""
                                 <div style='background-color:#3D3D3D;padding:10px;border-radius:5px;margin:5px 0'>
-                                    <p style='color:#FF5252;margin:0'>🔍 오류: {html.escape(error)}</p>
-                                    <p style='color:#00E676;margin:0'>✅ 수정: {html.escape(correction)}</p>
+                                    <p style='color:#FF5252;margin:0'>🔍 오류: {html.escape(str(original))}</p>
+                                    <p style='color:#00E676;margin:0'>✅ 수정: {html.escape(str(corrected))}</p>
                                 </div>
                             """, unsafe_allow_html=True)
+                            
                     st.markdown("<hr style='border:none;height:1px;background-color:#555555;margin:20px 0'>", unsafe_allow_html=True)
             else:
                 st.info("맞춤법 오류가 발견되지 않았습니다.")
