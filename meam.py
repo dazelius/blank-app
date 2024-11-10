@@ -1424,7 +1424,7 @@ def display_analysis_results(patterns, total_score):
             # 결과 카드 표시
             st.markdown(f"""
                 <div style='background-color: #2D2D2D; padding: 15px; border-radius: 10px; margin: 15px 0; border-left: 5px solid {border_color};'>
-                    <h3 style='color: {border_color};'>{category} (위험도: {danger_level})</h3>
+                    <h5 style='color: {border_color};'>{category} (위험도: {danger_level})</h3>
                 </div>
             """, unsafe_allow_html=True)
 
