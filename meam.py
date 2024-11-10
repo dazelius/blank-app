@@ -937,7 +937,7 @@ def analyze_file_contents(file_content, data):
         try:
             # 패턴 데이터 전처리 및 인덱싱 (캐싱)
             pattern_index = {}
-            for pattern in data:
+            for idx, pattern in enumerate(data):
                 if not isinstance(pattern, dict) or 'text' not in pattern:
                     continue
                 pattern_text = str(pattern['text']).lower()
@@ -945,21 +945,19 @@ def analyze_file_contents(file_content, data):
                 for word in words:
                     if len(word) >= 2:  # 2글자 이상 단어만 인덱싱
                         if word not in pattern_index:
-                            pattern_index[word] = []
-                        pattern_index[word].append(pattern)
+                            pattern_index[word] = set()
+                        pattern_index[word].add(idx)  # 패턴의 인덱스만 저장
 
             # 파일 배치 처리를 위한 설정
             BATCH_SIZE = 5000
-            chunk_size = max(1000, min(BATCH_SIZE, file_content.tell() // 100))  # 파일 크기에 따른 동적 청크 크기
+            chunk_size = max(1000, min(BATCH_SIZE, file_content.tell() // 100))
 
             dfs = []
             filename = getattr(file_content, 'name', '알 수 없는 파일')
             
-            # 파일 타입별 최적화된 로딩
             if hasattr(file_content, 'name'):
                 file_type = file_content.name.split('.')[-1].lower()
                 if file_type == 'csv':
-                    # CSV 파일 청크 단위 처리
                     for chunk in pd.read_csv(file_content, dtype=str, chunksize=chunk_size):
                         chunk['source_file'] = file_content.name
                         dfs.append(chunk)
@@ -984,31 +982,24 @@ def analyze_file_contents(file_content, data):
             if not dfs:
                 return None
 
-            # 데이터프레임 병합 최적화
             df = pd.concat(dfs, ignore_index=True, copy=False)
-            
-            # 메모리 최적화
             del dfs
             gc.collect()
 
-            # 텍스트 컬럼만 처리
             text_columns = df.select_dtypes(include=['object']).columns
             text_columns = [col for col in text_columns if col != 'source_file']
             
             all_results = []
             total_rows = len(df)
             
-            # 맞춤법 검사기 초기화 (한 번만)
             checker = SheetBasedSpellChecker()
 
-            # 프로그레스 바 초기화
             progress_bar = st.progress(0)
             status_text = st.empty()
             
             processed_rows = 0
             start_time = time.time()
 
-            # 배치 처리
             for batch_start in range(0, total_rows, BATCH_SIZE):
                 batch_end = min(batch_start + BATCH_SIZE, total_rows)
                 batch_df = df.iloc[batch_start:batch_end]
@@ -1026,18 +1017,21 @@ def analyze_file_contents(file_content, data):
                         text_lower = text.lower()
                         text_words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', text_lower).split())
                         
-                        # 빠른 패턴 매칭
-                        matched_patterns = set()
+                        # 매칭된 패턴 인덱스 수집
+                        matched_indices = set()
+                        matching_words = set()
                         for word in text_words:
                             if len(word) >= 2 and word in pattern_index:
-                                matched_patterns.update(pattern_index[word])
+                                matched_indices.update(pattern_index[word])
+                                matching_words.add(word)
                         
-                        # 상세 분석은 매칭된 패턴에 대해서만
-                        for pattern in matched_patterns:
+                        # 매칭된 패턴만 상세 분석
+                        for idx in matched_indices:
+                            pattern = data[idx]
                             pattern_text = str(pattern['text']).lower()
                             similarity = difflib.SequenceMatcher(None, text_lower, pattern_text).ratio()
                             
-                            if similarity >= 0.7:  # 임계값
+                            if similarity >= 0.7:
                                 result = {
                                     'text': text,
                                     'pattern': pattern['text'],
@@ -1047,11 +1041,11 @@ def analyze_file_contents(file_content, data):
                                     'match_score': similarity,
                                     'source_file': source_file,
                                     'column': col,
-                                    'matched_keywords': list(text_words & pattern_index.keys())
+                                    'matched_keywords': list(matching_words)
                                 }
                                 batch_results.append(result)
                         
-                        # 맞춤법 검사 (캐시 활용)
+                        # 맞춤법 검사
                         spell_result = checker.check(text)
                         if spell_result['corrections']:
                             spell_check = {
@@ -1078,26 +1072,28 @@ def analyze_file_contents(file_content, data):
                 speed = processed_rows / elapsed_time if elapsed_time > 0 else 0
                 remaining_time = (total_rows - processed_rows) / speed if speed > 0 else 0
                 
-                status_text.text(f"""
-                    처리 중... {processed_rows:,}/{total_rows:,} 행
-                    처리 속도: {speed:.0f} 행/초
-                    예상 남은 시간: {remaining_time:.1f}초
-                """)
+                status_text.text(f"""처리 중... {processed_rows:,}/{total_rows:,} 행
+처리 속도: {speed:.0f} 행/초
+예상 남은 시간: {remaining_time:.1f}초""")
 
             progress_bar.empty()
             status_text.empty()
 
             if all_results:
                 # 결과 정렬 및 중복 제거
-                pattern_results = [r for r in all_results if not r.get('is_spell_check', False)]
-                spell_results = [r for r in all_results if r.get('is_spell_check', False)]
-                
-                # 패턴 결과 정렬 (위험도와 매칭 점수로)
-                pattern_results.sort(key=lambda x: (-x['danger_level'], -x['match_score']))
+                seen = set()
+                unique_results = []
+                for result in sorted(all_results, 
+                                   key=lambda x: (-x.get('danger_level', 0), -x['match_score'])
+                                   if not x.get('is_spell_check') else (0, 0)):
+                    key = (result.get('text', ''), result.get('pattern', ''), result.get('source_file', ''))
+                    if key not in seen:
+                        seen.add(key)
+                        unique_results.append(result)
                 
                 return {
-                    'total_patterns': len(pattern_results),
-                    'results': pattern_results + spell_results[:1000],  # 상위 1000개 결과만
+                    'total_patterns': len([r for r in unique_results if not r.get('is_spell_check', False)]),
+                    'results': unique_results[:1000],  # 상위 1000개 결과만
                     'filename': filename
                 }
             return None
