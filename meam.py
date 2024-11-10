@@ -178,141 +178,126 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 import re
-from konlpy.tag import Hannanum
 from collections import defaultdict
-import json
-import os
 
-class KoreanSpellChecker:
-    """KoNLPy 기반 한국어 맞춤법 검사기"""
+class SimpleKoreanSpellChecker:
+    """간단한 규칙 기반 한국어 맞춤법 검사기"""
     
     def __init__(self):
-        self.hannanum = Hannanum()
-        self.common_errors = self._load_common_errors()
-        self.josa_rules = self._load_josa_rules()
+        self.rules = self._initialize_rules()
         
-    def _load_common_errors(self):
-        """일반적인 맞춤법 오류 패턴 로드"""
-        common_errors = {
-            # 자주 발생하는 맞춤법 오류
-            '되여': '되어',
-            '됬': '됐',
-            '힉교': '학교',
-            '할려고': '하려고',
-            '이여': '이어',
-            '께서께서': '께서',
-            '듯한': '듯한',
-            '됬다': '됐다',
-            '됬어': '됐어',
-            '했슴': '했음',
-            '햇어': '했어',
-            '싫엇': '싫었',
-            '이뻐': '예뻐',
-            '이쁜': '예쁜',
-            '이뻤': '예뻤',
+    def _initialize_rules(self):
+        """맞춤법 규칙 초기화"""
+        return {
+            # 기본적인 맞춤법 오류
+            'spelling': {
+                '됬': '됐',
+                '했슴': '했음',
+                '햇어': '했어',
+                '더웟': '더웠',
+                '이뻐': '예뻐',
+                '이쁜': '예쁜',
+                '이뻤': '예뻤',
+                '씁슬': '씁쓸',
+                '씁쓸': '씁쓸',
+                '갓': '걷',
+                '걳': '걷',
+                '깥': '깨달',
+                '달소': '닳소',
+                '됏': '되었',
+                '되엿': '되었',
+                '되염': '되요',
+                '듯한': '듯한',
+                '들려': '들러',
+                '맟': '맞',
+                '맟추': '맞추',
+                '믿데': '믿어',
+                '밨': '보았',
+                '바든': '받은',
+                '벌써': '벌써',
+                '부빜': '부뀜',
+                '살려': '사려',
+                '삭제': '삭제',
+                '쉽데': '쉽더',
+                '어떻해': '어떡해',
+                '어떨까': '어떨까',
+                '어떨지': '어떨지',
+                '어떻게': '어떻게',
+                '없다': '없다',
+                '왓': '왔',
+                '이따': '이따가',
+                '있다': '있다',
+                '젓': '졌',
+                '쫌': '좀',
+                '찾으': '찾아',
+                '했데': '했더',
+                '횡당': '형님',
+            },
             
             # 띄어쓰기 오류
-            '안돼': '안 돼',
-            '안되': '안 되',
-            '못하': '못 하',
-            '안된': '안 된',
-            '안되는': '안 되는',
-            '안되고': '안 되고',
-            '안됀': '안 된',
+            'spacing': {
+                '안돼': '안 돼',
+                '안되': '안 되',
+                '못하': '못 하',
+                '안된': '안 된',
+                '안되는': '안 되는',
+                '안되고': '안 되고',
+                '안됀': '안 된',
+                '수있': '수 있',
+                '수없': '수 없',
+                '더욱더': '더욱 더',
+                '왜냐하면': '왜냐하면',
+                '그러므로': '그러므로',
+                '때문에': '때문에',
+                '그래서': '그래서',
+                '아니면': '아니면',
+                '그리고': '그리고',
+                '하지만': '하지만',
+            },
             
             # 조사 오류
-            '이랑': '과',
-            '랑': '와',
-            '한테': '에게',
-            '에서부터': '부터',
-            '까지에': '까지',
-            
-            # 부사 활용 오류
-            '더욱더': '더욱',
-            '더더욱': '더욱',
-            '매우매우': '매우',
-            '너무너무': '너무',
-            
-            # 문장 부호 오류
-            '?!': '!',
-            '!?': '!',
-            '!!': '!',
-            '...': '…',
-            '??': '?'
-        }
-        
-        # 추가적인 패턴들
-        patterns = {
-            r'([가-힣]+)(하구|하구요)$': r'\1하고',
-            r'([가-힣]+)(든지|던지)': r'\1든지',
-            r'([가-힣]+)(스럽다|스럽습니다)$': r'\1스럽다',
-            r'([가-힣]+)(때문)': r'\1 때문',
-            r'([가-힣]+)(만큼)': r'\1 만큼',
-            r'([가-힣]+)(처럼)': r'\1 처럼'
-        }
-        
-        return {
-            'direct': common_errors,
-            'patterns': patterns
-        }
-    
-    def _load_josa_rules(self):
-        """조사 규칙 로드"""
-        return {
-            # 받침 있는 경우
-            '받침_있음': {
-                '주격': '이',
-                '목적격': '을',
-                '보격': '이',
-                '관형격': '의',
-                '부사격': '으로',
-                '호격': '아',
-                '공동격': '과'
+            'particles': {
+                '이랑': '과',
+                '랑': '와',
+                '한테': '에게',
+                '에서부터': '부터',
+                '까지에': '까지',
             },
-            # 받침 없는 경우
-            '받침_없음': {
-                '주격': '가',
-                '목적격': '를',
-                '보격': '가',
-                '관형격': '의',
-                '부사격': '로',
-                '호격': '야',
-                '공동격': '와'
+            
+            # 축약어 오류
+            'abbreviation': {
+                '머': '뭐',
+                '루': '로',
+                '솔직히말해서': '솔직히 말해서',
+                '솔직히말하면': '솔직히 말하면',
+                '그래욬ㅋㅋ': '그래요',
+                '방귀뀜': '방귀 뀜',
+                '먹음': '먹음',
+                '심심탱': '심심',
+                '하셈': '하세요',
+                '하삼': '하세요',
+                '했삼': '했어요',
+                '했슴': '했어요',
+                '했엌ㅋㅋ': '했어요',
             }
         }
     
-    def _has_final_consonant(self, word):
-        """단어의 받침 유무 확인"""
-        if not word:
-            return False
-        last_char = word[-1]
-        if '가' <= last_char <= '힣':
-            return (ord(last_char) - 0xAC00) % 28 > 0
-        return False
-    
-    def _check_josa(self, word, josa):
-        """조사 사용의 적절성 검사"""
-        has_consonant = self._has_final_consonant(word)
-        rules = self.josa_rules['받침_있음'] if has_consonant else self.josa_rules['받침_없음']
+    def _apply_rules(self, text, rule_type):
+        """특정 규칙 유형 적용"""
+        corrections = []
+        corrected = text
         
-        # 조사 유형 파악
-        josa_type = None
-        for type_name, correct_josa in rules.items():
-            if josa in [correct_josa, rules['받침_있음'][type_name], rules['받침_없음'][type_name]]:
-                josa_type = type_name
-                break
+        for wrong, right in self.rules[rule_type].items():
+            if wrong in text:
+                corrected = corrected.replace(wrong, right)
+                if wrong != right:  # 실제 교정이 발생한 경우만 기록
+                    corrections.append({
+                        'original': wrong,
+                        'corrected': right,
+                        'type': rule_type
+                    })
         
-        if josa_type:
-            correct_josa = rules[josa_type]
-            if josa != correct_josa:
-                return {
-                    'error': True,
-                    'original': josa,
-                    'corrected': correct_josa,
-                    'type': f'조사 오류 ({josa_type})'
-                }
-        
-        return {'error': False}
+        return corrected, corrections
     
     def check(self, text):
         """텍스트 맞춤법 검사"""
@@ -323,69 +308,35 @@ class KoreanSpellChecker:
                 'corrections': [],
                 'error': None
             }
-        
-        corrections = []
-        corrected_text = text
-        
+            
         try:
-            # 형태소 분석
-            morphs = self.hannanum.pos(text)
+            corrected_text = text
+            all_corrections = []
             
-            # 직접 치환 규칙 적용
-            for wrong, correct in self.common_errors['direct'].items():
-                if wrong in text:
-                    corrections.append({
-                        'original': wrong,
-                        'corrected': correct,
-                        'type': '일반적인 맞춤법 오류'
-                    })
-                    corrected_text = corrected_text.replace(wrong, correct)
-            
-            # 패턴 규칙 적용
-            for pattern, replacement in self.common_errors['patterns'].items():
-                matches = re.finditer(pattern, text)
-                for match in matches:
-                    original = match.group(0)
-                    corrected = re.sub(pattern, replacement, original)
-                    if original != corrected:
-                        corrections.append({
-                            'original': original,
-                            'corrected': corrected,
-                            'type': '패턴 맞춤법 오류'
-                        })
-                        corrected_text = corrected_text.replace(original, corrected)
-            
-            # 조사 검사
-            for i, (word, tag) in enumerate(morphs):
-                if tag == 'J':  # 조사인 경우
-                    # 이전 형태소가 있는 경우에만 검사
-                    if i > 0:
-                        prev_word = morphs[i-1][0]
-                        josa_check = self._check_josa(prev_word, word)
-                        if josa_check['error']:
-                            corrections.append({
-                                'original': f"{prev_word}{word}",
-                                'corrected': f"{prev_word}{josa_check['corrected']}",
-                                'type': josa_check['type']
-                            })
-                            corrected_text = corrected_text.replace(
-                                f"{prev_word}{word}",
-                                f"{prev_word}{josa_check['corrected']}"
-                            )
+            # 각 규칙 유형별로 검사 수행
+            for rule_type in self.rules.keys():
+                corrected_text, corrections = self._apply_rules(corrected_text, rule_type)
+                all_corrections.extend(corrections)
             
             # 중복 제거 및 정렬
             unique_corrections = []
             seen = set()
-            for correction in corrections:
+            for correction in all_corrections:
                 key = (correction['original'], correction['corrected'])
                 if key not in seen:
                     seen.add(key)
                     unique_corrections.append(correction)
             
+            # 교정 유형별로 분류
+            corrections_by_type = defaultdict(list)
+            for correction in unique_corrections:
+                corrections_by_type[correction['type']].append(correction)
+            
             return {
                 'original': text,
                 'corrected': corrected_text,
                 'corrections': unique_corrections,
+                'corrections_by_type': dict(corrections_by_type),
                 'error': None
             }
             
@@ -397,11 +348,76 @@ class KoreanSpellChecker:
                 'error': str(e)
             }
 
+def display_spelling_analysis(spelling_result):
+    """맞춤법 분석 결과 표시"""
+    if spelling_result.get('error'):
+        st.warning(f"⚠️ 맞춤법 검사 중 오류가 발생했습니다: {spelling_result['error']}")
+        return
+        
+    if not spelling_result['corrections']:
+        st.info("✅ 맞춤법 오류가 발견되지 않았습니다.")
+        return
+    
+    st.markdown("""
+        <div style='background-color: #2D2D2D; padding: 15px; border-radius: 10px; margin: 15px 0;'>
+            <h3 style='color: #E0E0E0;'>📝 맞춤법 검사 결과</h3>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # 교정 유형별로 결과 표시
+    corrections_by_type = spelling_result.get('corrections_by_type', {})
+    type_names = {
+        'spelling': '맞춤법 오류',
+        'spacing': '띄어쓰기 오류',
+        'particles': '조사 사용 오류',
+        'abbreviation': '축약어/비표준어'
+    }
+    
+    for error_type, corrections in corrections_by_type.items():
+        if corrections:
+            st.markdown(f"""
+                <div style='background-color: #3D3D3D; padding: 10px; border-radius: 8px; margin: 10px 0;'>
+                    <h4 style='color: #E0E0E0;'>{type_names.get(error_type, error_type)}</h4>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            for correction in corrections:
+                st.markdown(f"""
+                    <div style='background-color: #4D4D4D; padding: 10px; border-radius: 8px; margin: 5px 0;'>
+                        <p>🔍 수정 전: <span style='color: #FF5252;'>{correction['original']}</span></p>
+                        <p>✅ 수정 후: <span style='color: #00E676;'>{correction['corrected']}</span></p>
+                    </div>
+                """, unsafe_allow_html=True)
+    
+    # 전체 텍스트 비교
+    if spelling_result['original'] != spelling_result['corrected']:
+        st.markdown("""
+            <div style='background-color: #2D2D2D; padding: 15px; border-radius: 10px; margin-top: 15px;'>
+                <h4 style='color: #E0E0E0;'>📄 전체 텍스트 비교</h4>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**원문:**")
+            st.markdown(f"""
+                <div style='background-color: #3D3D3D; padding: 10px; border-radius: 8px;'>
+                    {spelling_result['original']}
+                </div>
+            """, unsafe_allow_html=True)
+        with col2:
+            st.markdown("**교정문:**")
+            st.markdown(f"""
+                <div style='background-color: #3D3D3D; padding: 10px; border-radius: 8px;'>
+                    {spelling_result['corrected']}
+                </div>
+            """, unsafe_allow_html=True)
+
 def analyze_text_with_spelling(input_text, data, threshold=0.7):
     """텍스트 분석과 맞춤법 검사 통합"""
     
     # 맞춤법 검사
-    checker = KoreanSpellChecker()
+    checker = SimpleKoreanSpellChecker()
     spelling_result = checker.check(input_text)
     
     # 패턴 매칭
