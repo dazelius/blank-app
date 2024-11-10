@@ -1160,7 +1160,7 @@ def analyze_file_contents(file_content, data):
 import streamlit as st
 import html
 
-def analyze_file_contents(file_content, data):
+def analyze_file_contents(file_content, data, spell_check_enabled=True, progress_bar=None, progress_text=None):
     """파일 내용 분석 - 초고속 버전 (폴더 및 타입 체크 지원)"""
     import time
     from collections import defaultdict
@@ -1187,7 +1187,8 @@ def analyze_file_contents(file_content, data):
             filename = getattr(file_content, 'name', '알 수 없는 파일')
             update_log("📂 파일 로딩 및 패턴 최적화 중...", filename)
             
-            if hasattr(file_content, 'name'):  # 단일 파일
+            # 파일 처리 로직
+            if hasattr(file_content, 'name'):
                 file_type = file_content.name.split('.')[-1].lower()
                 if file_type == 'csv':
                     df = pd.read_csv(file_content, dtype=str)
@@ -1197,7 +1198,7 @@ def analyze_file_contents(file_content, data):
                     df = pd.read_excel(file_content, dtype=str)
                     df['source_file'] = file_content.name
                     dfs.append(df)
-                elif file_type == 'zip':  # ZIP 파일(폴더) 처리
+                elif file_type == 'zip':
                     with zipfile.ZipFile(file_content) as z:
                         for zip_filename in z.namelist():
                             if zip_filename.endswith(('.csv', '.xlsx', '.xls')):
@@ -1224,7 +1225,6 @@ def analyze_file_contents(file_content, data):
                 pattern_text = str(item.get('text', '')).lower()
                 words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text).split())
                 
-                # 각 단어를 키로 사용하여 패턴 인덱스 저장
                 for word in words:
                     if len(word) >= 2:
                         pattern_lookup[word].append((idx, words))
@@ -1236,74 +1236,50 @@ def analyze_file_contents(file_content, data):
             total_patterns_found = 0
             all_results = []
             
-            progress_bar = st.progress(0)
-            progress_text = st.empty()
-            
-            def analyze_text_batch(texts, batch_idx, total_batches, source_file):
+            def analyze_text_batch(texts, batch_idx, total_batches, source_file, column):
                 """텍스트 배치 고속 분석"""
                 batch_results = []
-                potential_matches = defaultdict(set)
                 
-                # 1단계: 빠른 키워드 매칭
-                for text_idx, text in enumerate(texts):
-                    # 숫자형 데이터 처리
-                    if isinstance(text, (int, float)):
-                        text = str(text)
-                    # None 값 처리    
+                for text in texts:
+                    # 텍스트 전처리
                     if not isinstance(text, str):
-                        continue
-                        
-                    text_lower = text.lower()
-                    words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', text_lower).split())
+                        text = str(text) if text is not None else ""
                     
-                    # 각 단어에 대해 가능한 패턴 찾기
-                    for word in words:
-                        if len(word) >= 2 and word in pattern_lookup:
-                            for pattern_idx, pattern_words in pattern_lookup[word]:
-                                potential_matches[text_idx].add(pattern_idx)
-                
-                # 2단계: 정확한 매칭 검사
-                for text_idx, pattern_indices in potential_matches.items():
-                    text = texts[text_idx]
-                    if isinstance(text, (int, float)):
-                        text = str(text)
-                    text_lower = text.lower()
-                    text_words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', text_lower).split())
+                    # 패턴 매칭 수행
+                    found_patterns = find_matching_patterns(text, data)
                     
-                    for pattern_idx in pattern_indices:
-                        pattern_item = data[pattern_idx]
-                        pattern_text = str(pattern_item['text']).lower()
-                        pattern_words = set(re.sub(r'[^가-힣a-zA-Z0-9\s]', '', pattern_text).split())
+                    # 맞춤법 검사 수행 (활성화된 경우)
+                    spelling_result = None
+                    if spell_check_enabled and text.strip():
+                        spelling_result = check_spelling(text)
+                    
+                    # 결과 저장
+                    for pattern in found_patterns:
+                        result = {
+                            'text': text,
+                            'pattern': pattern['pattern'],
+                            'analysis': pattern['analysis'],
+                            'danger_level': pattern['danger_level'],
+                            'url': pattern.get('url', ''),
+                            'match_score': pattern['match_score'],
+                            'source_file': source_file,
+                            'column': column
+                        }
                         
-                        # 워드 매칭 스코어 계산
-                        common_words = text_words & pattern_words
-                        if common_words:
-                            match_score = len(common_words) / len(pattern_words)
-                            if match_score >= 0.7:  # 임계값
-                                try:
-                                    danger_level = int(pattern_item.get('dangerlevel', 0))
-                                except (ValueError, TypeError):
-                                    danger_level = 0
-                                    
-                                batch_results.append({
-                                    'text': text,
-                                    'pattern': pattern_item['text'],
-                                    'analysis': pattern_item['output'],
-                                    'danger_level': danger_level,
-                                    'url': pattern_item.get('url', ''),
-                                    'match_score': match_score,
-                                    'source_file': source_file
-                                })
+                        if spelling_result and spelling_result['errors'] > 0:
+                            result['spelling_check'] = spelling_result
+                            
+                        batch_results.append(result)
                 
                 return batch_results
 
             # 병렬 처리를 위한 배치 처리
             total_rows = df[text_columns].notna().sum().sum()
             processed_rows = 0
-            batch_size = 5000  # 대용량 배치
+            batch_size = 5000
             
-            for col_idx, col in enumerate(text_columns):
-                if col == 'source_file':  # source_file 컬럼 제외
+            for col in text_columns:
+                if col == 'source_file':
                     continue
                     
                 texts = df[col].dropna().tolist()
@@ -1317,21 +1293,24 @@ def analyze_file_contents(file_content, data):
                     batch_sources = source_files[start_idx:end_idx]
                     
                     # 배치 분석
-                    for text, source_file in zip(batch_texts, batch_sources):
-                        results = analyze_text_batch([text], 0, 1, source_file)
-                        if results:
-                            # 컬럼 정보 추가
-                            for r in results:
-                                r['column'] = col
-                            all_results.extend(results)
-                            total_patterns_found += len(results)
+                    results = analyze_text_batch(
+                        batch_texts, 
+                        batch_idx, 
+                        total_batches, 
+                        batch_sources[0], 
+                        col
+                    )
+                    
+                    all_results.extend(results)
+                    total_patterns_found += len(results)
                     
                     # 진행률 업데이트
                     processed_rows += len(batch_texts)
-                    progress = min(processed_rows / total_rows, 1.0)
-                    progress_bar.progress(progress)
+                    if progress_bar is not None:
+                        progress = min(processed_rows / total_rows, 1.0)
+                        progress_bar.progress(progress)
                     
-                    if batch_idx % 2 == 0:  # 로그 업데이트 빈도 조절
+                    if batch_idx % 2 == 0:
                         elapsed_time = time.time() - start_time
                         speed = processed_rows / elapsed_time if elapsed_time > 0 else 0
                         update_log(f"""
@@ -1342,14 +1321,10 @@ def analyze_file_contents(file_content, data):
                         """, filename)
             
             # 최종 결과 정리
-            progress_bar.empty()
-            progress_text.empty()
-            
             if all_results:
-                # 최종 정렬 및 중복 제거
                 seen = set()
                 unique_results = []
-                for r in sorted(all_results, key=lambda x: (-x['match_score'], -x['danger_level'])):
+                for r in sorted(all_results, key=lambda x: (-x.get('match_score', 0), -x.get('danger_level', 0))):
                     key = (r['text'], r['pattern'], r['source_file'])
                     if key not in seen:
                         seen.add(key)
@@ -1378,6 +1353,7 @@ def analyze_file_contents(file_content, data):
             import traceback
             st.error(f"상세 오류: {traceback.format_exc()}")
             return None
+            
     return None
 
 def display_file_analysis_results(analysis_results):
@@ -1722,26 +1698,47 @@ def main():
                             all_results = []
                             total_patterns = 0
                             
-                            # 프로그레스 바 설정
+                            # 프로그레스 바와 텍스트 생성
                             progress_text = st.empty()
                             progress_bar = st.progress(0)
                             
-                            # 각 파일 처리
-                            for idx, file in enumerate(uploaded_files):
-                                progress = (idx + 1) / len(uploaded_files)
-                                progress_bar.progress(progress)
-                                progress_text.text(f"파일 분석 중... ({idx + 1}/{len(uploaded_files)}): {file.name}")
+                            try:
+                                # 각 파일 처리
+                                for idx, file in enumerate(uploaded_files):
+                                    with st.spinner(f'🔄 {file.name} 분석 중...'):
+                                        analysis_result = analyze_file_contents(
+                                            file, 
+                                            data,
+                                            spell_check_enabled=spell_check_files,
+                                            progress_bar=progress_bar,
+                                            progress_text=progress_text
+                                        )
+                                        
+                                        if analysis_result and analysis_result['total_patterns'] > 0:
+                                            all_results.extend(analysis_result['results'])
+                                            total_patterns += analysis_result['total_patterns']
                                 
-                                with st.spinner(f'🔄 {file.name} 분석 중...'):
-                                    analysis_result = analyze_file_contents(file, data)
+                                # 분석 결과 표시
+                                if total_patterns > 0:
+                                    st.success(f"🎯 분석이 완료되었습니다! 총 {total_patterns}개의 패턴이 발견되었습니다.")
                                     
-                                    if analysis_result and analysis_result['total_patterns'] > 0:
-                                        # 맞춤법 검사는 이제 analyze_file_contents 내에서 처리됨
-                                        all_results.extend(analysis_result['results'])
-                                        total_patterns += analysis_result['total_patterns']
-                        
-                        progress_bar.empty()
-                        progress_text.empty()
+                                    combined_results = {
+                                        'total_patterns': total_patterns,
+                                        'results': sorted(all_results, 
+                                                    key=lambda x: (x['danger_level'], x['match_score']), 
+                                                    reverse=True)[:1000]
+                                    }
+                                    display_file_analysis_results(combined_results)
+                                else:
+                                    st.info("👀 파일에서 위험 패턴이 발견되지 않았습니다.")
+                                    
+                            except Exception as e:
+                                st.error(f"파일 분석 중 오류가 발생했습니다: {str(e)}")
+                                st.error("상세 오류:", exception=True)
+                            finally:
+                                # 프로그레스 바와 텍스트 제거
+                                progress_bar.empty()
+                                progress_text.empty()
                         
                         if total_patterns > 0:
                             st.success(f"🎯 분석이 완료되었습니다! 총 {total_patterns}개의 패턴이 발견되었습니다.")
