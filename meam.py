@@ -10,6 +10,7 @@ import pandas as pd
 import streamlit as st
 import html
 import requests
+import time
 from PIL import Image
 from io import BytesIO
 
