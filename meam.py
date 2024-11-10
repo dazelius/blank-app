@@ -1545,19 +1545,32 @@ def display_analysis_results(patterns, total_score):
                     with cols[1]:
                         st.markdown(f"<p style='color:#FFFFFF;'><strong>일치율:</strong> {match_percentage}%</p>", unsafe_allow_html=True)
 
-                    # 원본 텍스트와 하이라이트
-                    st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>발견된 텍스트:</div>", unsafe_allow_html=True)
-                    try:
-                        highlighted_text = highlight_pattern_in_text(pattern['text'], pattern['pattern'])
-                        st.markdown(f"""
-                            <div style='white-space: pre-wrap; font-family: "Noto Sans KR", sans-serif; 
-                                    background-color: #333333; padding: 10px; border-radius: 5px; 
-                                    color: #FFFFFF; margin-bottom: 10px;'>
-                                {highlighted_text}
-                            </div>
-                        """, unsafe_allow_html=True)
-                    except:
-                        st.markdown(f"<div style='background-color: #333333; padding: 10px; border-radius: 5px; color: #FFFFFF;'>{html.escape(str(pattern.get('text', '')))}</div>", unsafe_allow_html=True)
+                    # 패턴 정보 표시
+                    st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>발견된 패턴:</div>", unsafe_allow_html=True)
+                    st.markdown(f"""
+                        <div style='background-color: #333333; padding: 10px; border-radius: 5px; color: #FFFFFF;'>
+                            {html.escape(str(pattern['pattern']))}
+                        </div>
+                    """, unsafe_allow_html=True)
+
+                    # 원본 텍스트 표시
+                    if 'text' in pattern:
+                        st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>원본 텍스트:</div>", unsafe_allow_html=True)
+                        try:
+                            highlighted_text = highlight_pattern_in_text(pattern['text'], pattern['pattern'])
+                            st.markdown(f"""
+                                <div style='white-space: pre-wrap; font-family: "Noto Sans KR", sans-serif; 
+                                        background-color: #333333; padding: 10px; border-radius: 5px; 
+                                        color: #FFFFFF; margin-bottom: 10px;'>
+                                    {highlighted_text}
+                                </div>
+                            """, unsafe_allow_html=True)
+                        except:
+                            st.markdown(f"""
+                                <div style='background-color: #333333; padding: 10px; border-radius: 5px; color: #FFFFFF;'>
+                                    {html.escape(str(pattern['text']))}
+                                </div>
+                            """, unsafe_allow_html=True)
 
                     # 분석 정보 표시
                     st.markdown("<div style='font-weight:bold; margin-top: 10px; color: #FFFFFF;'>분석:</div>", unsafe_allow_html=True)
