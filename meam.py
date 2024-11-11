@@ -1720,17 +1720,13 @@ def main():
             if submit_button:
                 if all([wrong_text, correct_text]):
                     try:
-                        worksheet = get_sheet_instance()
-                        if worksheet:
-                            try:
-                                checker_sheet = worksheet.worksheet('checker')
-                            except:
-                                checker_sheet = worksheet.add_worksheet('checker', 1000, 2)
-                                checker_sheet.update('A1:B1', [['오류', '수정']])
-                            
+                        checker_sheet = get_or_create_checker_worksheet()
+                        if checker_sheet:
                             checker_sheet.append_row([wrong_text, correct_text])
                             st.success("✅ 맞춤법 규칙이 등록되었습니다!")
                             st.balloons()
+                            # 캐시 초기화
+                            SheetBasedSpellChecker.clear_cache()
                             st.cache_data.clear()
                             st.rerun()
                         else:
@@ -1749,26 +1745,57 @@ def main():
             
             try:
                 checker = SheetBasedSpellChecker()
-                rules = checker.rules
+                rules = checker.get_rules()  # _rules 대신 get_rules() 메서드 사용
                 
                 if rules:
-                    df = pd.DataFrame(list(rules.items()), columns=['오류 표현', '올바른 표현'])
-                    st.dataframe(
-                        df,
-                        use_container_width=True,
-                        hide_index=True,
-                        height=400
-                    )
+                    # 규칙 검색 기능 추가
+                    search_term = st.text_input("🔍 규칙 검색:", placeholder="검색어를 입력하세요...")
+                    
+                    # 검색어가 있는 경우 필터링
+                    if search_term:
+                        filtered_rules = {k: v for k, v in rules.items() 
+                                        if search_term.lower() in k.lower() or 
+                                        search_term.lower() in v.lower()}
+                    else:
+                        filtered_rules = rules
+                    
+                    if filtered_rules:
+                        df = pd.DataFrame(list(filtered_rules.items()), 
+                                        columns=['오류 표현', '올바른 표현'])
+                        
+                        # 정렬 옵션
+                        sort_column = st.selectbox(
+                            "정렬 기준:",
+                            ["오류 표현", "올바른 표현"],
+                            key="sort_rules"
+                        )
+                        
+                        df = df.sort_values(by=sort_column)
+                        
+                        # 데이터프레임 표시
+                        st.dataframe(
+                            df,
+                            use_container_width=True,
+                            hide_index=True,
+                            height=400
+                        )
+                        
+                        # 통계 정보
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("총 규칙 수", len(filtered_rules))
+                        with col2:
+                            avg_correction_length = sum(len(v) for v in filtered_rules.values()) / len(filtered_rules)
+                            st.metric("평균 수정 길이", f"{avg_correction_length:.1f}")
+                    else:
+                        st.info("검색 결과가 없습니다.")
                 else:
                     st.info("등록된 맞춤법 규칙이 없습니다.")
                     
             except Exception as e:
                 st.error(f"규칙 목록 로딩 중 오류 발생: {str(e)}")
-                
-    except Exception as e:
-        st.error(f"애플리케이션 실행 중 오류가 발생했습니다: {str(e)}")
-        st.error("상세 오류:", exception=True)
-        return
+                import traceback
+                st.error(f"상세 오류:\n{traceback.format_exc()}")
 
 if __name__ == "__main__":
     main()
