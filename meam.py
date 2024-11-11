@@ -861,6 +861,121 @@ def extract_keywords(text):
         st.error(f"키워드 추출 중 오류 발생: {str(e)}")
         return []
 
+
+def apply_spacing_corrections(text):
+    """
+    정규식 패턴을 사용하여 한국어 띄어쓰기 교정
+    
+    Args:
+        text (str): 교정할 텍스트
+        
+    Returns:
+        str: 교정된 텍스트
+    """
+    if not text or text.isspace():
+        return text
+        
+    corrections = [
+        # 조사 교정
+        (r'(?<=[\w가-힣])(\s*)(은|는|이|가|을|를|의|로|으로|에|에서|부터|까지|께|처럼|같이)(?=\s|$)', r' \2'),
+        
+        # 보조 용언 교정
+        (r'(?<=[\w가-힣])(\s*)(하고|하여|하면서|하는|된|둔|지|고|하게|게|겠|되어|돼|해|됨|함)(?=\s|$)', r' \2'),
+        
+        # 단위성 의존명사
+        (r'(?<=\d)(\s*)(군데|가지|그루|년|달|개월|주일|시간|분|초|원|달러|만|억|조|쌍|평|미터|키로|센티|퍼센트|도|건|장|권|명|인|곳|번|차례|일|회|층|단계)(?=\s|$)', r' \2'),
+        
+        # 고유명사
+        (r'(?<=[\w가-힣])(\s*)(시|도|군|구|읍|면|동|리|로|가|대학교|학교|공원|병원|은행|역|회사)(?=\s|$)', r' \2'),
+        
+        # 의존명사
+        (r'(?<=[\w가-힣])(\s*)(것|수|데|줄|만큼|듯|바|뿐|채|김|적|지|때|리|테|즈음|즉|등|간|중|내|외|상|하|후|전|때문|리)(?=\s|$)', r' \2'),
+        
+        # 복합조사
+        (r'(?<=[\w가-힣])(\s*)(에서부터|까지도|에까지|마저도|조차도|이라도|라도|이나마|나마|이야말로|야말로)(?=\s|$)', r' \2'),
+        
+        # 부사
+        (r'(?<=[\w가-힣])(\s*)(매우|너무|아주|조금|약간|다소|몹시|정말|굉장히|상당히|제법|은근히)(?=\s|$)', r' \2'),
+        
+        # 연결어미
+        (r'(?<=[\w가-힣])(\s*)(면서|므로|거나|든지|이며|하며|에도|라며|더니|자마자|고서|다가|대로)(?=\s|$)', r' \2'),
+        
+        # 한자어 띄어쓰기
+        (r'(?<=[\w가-힣])(\s*)(학원|특별|주간|야간|전화|우편|사진|신청|접수|문의|상담|환영)(?=[\w가-힣])', r'\1 \2 '),
+        
+        # 숫자-단위 띄어쓰기
+        (r'(\d+)(\s*)(개|명|건|대|년|월|일|시|분|초|쪽|권|장|미터|키로|원|달러|엔|위안)', r'\1 \3'),
+        
+        # 중복 공백 제거
+        (r'\s+', ' ')
+    ]
+    
+    # 패턴 순차 적용
+    corrected = text
+    for pattern, replacement in corrections:
+        try:
+            corrected = re.sub(pattern, replacement, corrected)
+        except re.error:
+            continue
+            
+    return corrected.strip()
+
+def analyze_spacing_errors(text):
+    """
+    텍스트의 띄어쓰기 오류를 분석하고 교정 정보 반환
+    
+    Args:
+        text (str): 분석할 텍스트
+        
+    Returns:
+        dict: 교정 정보 딕셔너리
+    """
+    if not text or text.isspace():
+        return {
+            'original': text,
+            'corrected': text,
+            'corrections': [],
+            'error': None
+        }
+        
+    try:
+        corrected = apply_spacing_corrections(text)
+        corrections = []
+        
+        # 원문과 교정문이 다른 경우 차이점 분석
+        if corrected != text:
+            # 단어 단위로 분리하여 비교
+            original_words = text.split()
+            corrected_words = corrected.split()
+            
+            from difflib import SequenceMatcher
+            matcher = SequenceMatcher(None, original_words, corrected_words)
+            
+            for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+                if tag != 'equal':
+                    corrections.append({
+                        'original': ' '.join(original_words[i1:i2]),
+                        'corrected': ' '.join(corrected_words[j1:j2]),
+                        'type': '띄어쓰기 오류',
+                        'position': (i1, i2)
+                    })
+        
+        return {
+            'original': text,
+            'corrected': corrected,
+            'corrections': corrections,
+            'error': None
+        }
+        
+    except Exception as e:
+        return {
+            'original': text,
+            'corrected': text,
+            'corrections': [],
+            'error': str(e)
+        }
+
+
 def highlight_pattern_in_text(text, pattern, matched_keywords=None):
     """텍스트 내의 패턴을 하이라이트 - 공백 최적화"""
     try:
