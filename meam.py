@@ -1701,101 +1701,105 @@ def main():
             else:
                 st.info("등록된 패턴이 없습니다.")
 
-    with tab3:
-        st.markdown("""
-            <div style='background-color: #2D2D2D; padding: 1rem; border-radius: 10px; margin-bottom: 1rem;'>
-                <h4>📝 맞춤법 규칙 관리</h4>
-                <p style='color: #E0E0E0;'>맞춤법 검사에 사용될 규칙을 관리합니다.</p>
+        with tab3:
+            st.markdown("""
+                <div style='background-color: #2D2D2D; padding: 1rem; border-radius: 10px; margin-bottom: 1rem;'>
+                    <h4>📝 맞춤법 규칙 관리</h4>
+                    <p style='color: #E0E0E0;'>맞춤법 검사에 사용될 규칙을 관리합니다.</p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            with st.form("spelling_rule_form", clear_on_submit=True):
+                wrong_text = st.text_input("❌ 오류 표현:", placeholder="수정이 필요한 표현을 입력하세요")
+                correct_text = st.text_input("✅ 올바른 표현:", placeholder="올바른 표현을 입력하세요")
+                
+                col1, col2, col3 = st.columns([1,1,1])
+                with col2:
+                    submit_button = st.form_submit_button("✨ 규칙 등록", use_container_width=True)
+            
+            if submit_button:
+                if all([wrong_text, correct_text]):
+                    try:
+                        checker_sheet = get_or_create_checker_worksheet()
+                        if checker_sheet:
+                            checker_sheet.append_row([wrong_text, correct_text])
+                            st.success("✅ 맞춤법 규칙이 등록되었습니다!")
+                            st.balloons()
+                            # 캐시 초기화
+                            SheetBasedSpellChecker.clear_cache()
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.error("시트에 연결할 수 없습니다.")
+                    except Exception as e:
+                        st.error(f"😢 규칙 등록 중 오류가 발생했습니다: {str(e)}")
+                else:
+                    st.warning("⚠️ 오류 표현과 올바른 표현을 모두 입력해주세요!")
+            
+            # 현재 등록된 규칙 표시
+            st.markdown("""
+            <div class="database-title">
+                📊 현재 등록된 맞춤법 규칙
             </div>
-        """, unsafe_allow_html=True)
-        
-        with st.form("spelling_rule_form", clear_on_submit=True):
-            wrong_text = st.text_input("❌ 오류 표현:", placeholder="수정이 필요한 표현을 입력하세요")
-            correct_text = st.text_input("✅ 올바른 표현:", placeholder="올바른 표현을 입력하세요")
+            """, unsafe_allow_html=True)
             
-            col1, col2, col3 = st.columns([1,1,1])
-            with col2:
-                submit_button = st.form_submit_button("✨ 규칙 등록", use_container_width=True)
-        
-        if submit_button:
-            if all([wrong_text, correct_text]):
-                try:
-                    checker_sheet = get_or_create_checker_worksheet()
-                    if checker_sheet:
-                        checker_sheet.append_row([wrong_text, correct_text])
-                        st.success("✅ 맞춤법 규칙이 등록되었습니다!")
-                        st.balloons()
-                        # 캐시 초기화
-                        SheetBasedSpellChecker.clear_cache()
-                        st.cache_data.clear()
-                        st.rerun()
+            try:
+                checker = SheetBasedSpellChecker()
+                rules = checker.get_rules()  # _rules 대신 get_rules() 메서드 사용
+                
+                if rules:
+                    # 규칙 검색 기능 추가
+                    search_term = st.text_input("🔍 규칙 검색:", placeholder="검색어를 입력하세요...")
+                    
+                    # 검색어가 있는 경우 필터링
+                    if search_term:
+                        filtered_rules = {k: v for k, v in rules.items() 
+                                        if search_term.lower() in k.lower() or 
+                                           search_term.lower() in v.lower()}
                     else:
-                        st.error("시트에 연결할 수 없습니다.")
-                except Exception as e:
-                    st.error(f"😢 규칙 등록 중 오류가 발생했습니다: {str(e)}")
-            else:
-                st.warning("⚠️ 오류 표현과 올바른 표현을 모두 입력해주세요!")
-        
-        # 현재 등록된 규칙 표시
-        st.markdown("""
-        <div class="database-title">
-            📊 현재 등록된 맞춤법 규칙
-        </div>
-        """, unsafe_allow_html=True)
-        
-        try:
-            checker = SheetBasedSpellChecker()
-            rules = checker.get_rules()  # _rules 대신 get_rules() 메서드 사용
-            
-            if rules:
-                # 규칙 검색 기능 추가
-                search_term = st.text_input("🔍 규칙 검색:", placeholder="검색어를 입력하세요...")
-                
-                # 검색어가 있는 경우 필터링
-                if search_term:
-                    filtered_rules = {k: v for k, v in rules.items() 
-                                    if search_term.lower() in k.lower() or 
-                                    search_term.lower() in v.lower()}
+                        filtered_rules = rules
+                    
+                    if filtered_rules:
+                        df = pd.DataFrame(list(filtered_rules.items()), 
+                                        columns=['오류 표현', '올바른 표현'])
+                        
+                        # 정렬 옵션
+                        sort_column = st.selectbox(
+                            "정렬 기준:",
+                            ["오류 표현", "올바른 표현"],
+                            key="sort_rules"
+                        )
+                        
+                        df = df.sort_values(by=sort_column)
+                        
+                        # 데이터프레임 표시
+                        st.dataframe(
+                            df,
+                            use_container_width=True,
+                            hide_index=True,
+                            height=400
+                        )
+                        
+                        # 통계 정보
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("총 규칙 수", len(filtered_rules))
+                        with col2:
+                            avg_correction_length = sum(len(v) for v in filtered_rules.values()) / len(filtered_rules)
+                            st.metric("평균 수정 길이", f"{avg_correction_length:.1f}")
+                    else:
+                        st.info("검색 결과가 없습니다.")
                 else:
-                    filtered_rules = rules
+                    st.info("등록된 맞춤법 규칙이 없습니다.")
+                    
+            except Exception as e:
+                st.error(f"규칙 목록 로딩 중 오류 발생: {str(e)}")
+                import traceback
+                st.error(f"상세 오류:\n{traceback.format_exc()}")
                 
-                if filtered_rules:
-                    df = pd.DataFrame(list(filtered_rules.items()), 
-                                    columns=['오류 표현', '올바른 표현'])
-                    
-                    # 정렬 옵션
-                    sort_column = st.selectbox(
-                        "정렬 기준:",
-                        ["오류 표현", "올바른 표현"],
-                        key="sort_rules"
-                    )
-                    
-                    df = df.sort_values(by=sort_column)
-                    
-                    # 데이터프레임 표시
-                    st.dataframe(
-                        df,
-                        use_container_width=True,
-                        hide_index=True,
-                        height=400
-                    )
-                    
-                    # 통계 정보
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("총 규칙 수", len(filtered_rules))
-                    with col2:
-                        avg_correction_length = sum(len(v) for v in filtered_rules.values()) / len(filtered_rules)
-                        st.metric("평균 수정 길이", f"{avg_correction_length:.1f}")
-                else:
-                    st.info("검색 결과가 없습니다.")
-            else:
-                st.info("등록된 맞춤법 규칙이 없습니다.")
-                
-        except Exception as e:
-            st.error(f"규칙 목록 로딩 중 오류 발생: {str(e)}")
-            import traceback
-            st.error(f"상세 오류:\n{traceback.format_exc()}")
+    except Exception as e:
+        st.error(f"애플리케이션 실행 중 오류가 발생했습니다: {str(e)}")
+        st.error("상세 오류:", exception=True)
 
 if __name__ == "__main__":
     main()
